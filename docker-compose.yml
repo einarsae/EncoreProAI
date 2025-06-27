@@ -1,0 +1,62 @@
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: encoreproai-postgres
+    environment:
+      POSTGRES_DB: encoreproai
+      POSTGRES_USER: encore
+      POSTGRES_PASSWORD: secure_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - /Users/einar/CODE/EncoreProAI/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U encore -d encoreproai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Test runner service
+  test:
+    build: .
+    container_name: encoreproai-test
+    environment:
+      - DATABASE_URL=postgresql://encore:secure_password@postgres:5432/encoreproai
+      - TEST_DATABASE_URL=postgresql://encore:secure_password@postgres:5432/encoreproai_test
+      - CUBE_URL=${CUBE_API_URL}
+      - CUBE_SECRET=${CUBE_API_SECRET}
+      - CUBE_API_TOKEN=${CUBE_API_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LLM_CHAT_STANDARD=${LLM_CHAT_STANDARD}
+      - LLM_CHAT_FAST=${LLM_CHAT_FAST}
+      - LLM_TIER_STANDARD=${LLM_TIER_STANDARD}
+      - LLM_TIER_FAST=${LLM_TIER_FAST}
+      - DEFAULT_TENANT_ID=${DEFAULT_TENANT_ID}
+      - TENANT_ID=${DEFAULT_TENANT_ID:-test_tenant}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - /Users/einar/CODE/EncoreProAI:/app
+    command: ["python", "-m", "pytest", "-v"]
+    
+  # App service for later
+  # app:
+  #   build: .
+  #   container_name: encoreproai-app
+  #   environment:
+  #     - DATABASE_URL=postgresql://encore:secure_password@postgres:5432/encoreproai
+  #   ports:
+  #     - "8000:8000"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./:/app
+
+volumes:
+  postgres_data:

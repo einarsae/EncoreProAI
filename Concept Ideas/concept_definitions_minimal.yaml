@@ -1,0 +1,446 @@
+# ===== MINIMAL CONCEPT DEFINITIONS =====
+# Focused on what mention extraction and concept resolution actually need
+# This replaces the massive concept_definitions.yaml for core functionality
+
+metadata:
+  version: "1.0.0"
+  description: "Minimal concept definitions for mention extraction and resolution"
+  last_updated: "2025-01-01"
+
+# ===== MINIMAL ENUMS =====
+enums:
+  concept_types:
+    _meta:
+      description: "Concept type categorization for mention extraction"
+      class_name: "ConceptType"
+    metric:
+      description: "Quantitative measures like revenue or attendance"
+    group:
+      description: "Entity groupings like shows or venues"
+    condition:
+      description: "Filter or comparison logic (e.g., top N)"
+    time:
+      description: "Temporal references or granularities"
+    analysis:
+      description: "Type of analysis like comparison or trend"
+
+  analysis_context_types:
+    _meta:
+      description: "Analysis context type categorization"
+      class_name: "AnalysisContextType"
+    simple_analysis:
+      description: "Basic single-metric analysis and entity counting"
+    comparison:
+      description: "Comparative analysis between entities"
+    trend_analysis:
+      description: "Time-based trend analysis"
+    schema_info:
+      description: "Schema and data discovery information"
+
+  comparison_types:
+    _meta:
+      description: "Types of comparison operations"
+      class_name: "ComparisonType"
+    entity_comparison:
+      description: "Compare different entities"
+    time_comparison:
+      description: "Compare across time periods"
+    metric_comparison:
+      description: "Compare different metrics"
+
+# ===== CORE CONCEPTS FOR MENTION EXTRACTION =====
+concepts:
+  metrics:
+    attendance:
+      display_name: "Attendance"
+      description: "Number of tickets sold (quantity)"
+      aliases:
+        - "attendance"
+        - "total attendance"
+        - "attendees" 
+        - "people"
+        - "number of attendees"
+        - "how many people"
+        - "how many attended"
+        - "people who attended"
+        - "audience size"
+        - "turnout"
+        - "headcount"
+        - "visitors"
+        - "guests"
+        - "number of tickets"
+        - "ticket count"
+        - "quantity sold"
+        - "quantity"
+        - "count"
+        - "how many tickets"
+        - "tickets sold"
+        - "tickets"
+      cube_mapping:
+        primary_field: "ticket_line_items.quantity"
+      resolved_value:
+        measure: "ticket_line_items.quantity"
+        aggregation: "sum"
+        metric_type: "attendance"
+
+    revenue:
+      display_name: "Revenue"
+      description: "Total revenue from ticket sales"
+      aliases:
+        - "revenue"
+        - "total revenue"
+        - "sales revenue"
+        - "income"
+        - "earnings"
+        - "total sales"
+        - "gross revenue"
+        - "sell"
+        - "sold"
+        - "sales"
+        - "selling"
+        - "money"
+        - "dollars"
+        - "cash"
+        - "proceeds"
+        - "takings"
+        - "box office"
+        - "receipts"
+        - "turnover"
+        - "revenue from tickets"
+        - "ticket revenue"
+      cube_mapping:
+        primary_field: "ticket_line_items.amount"
+      resolved_value:
+        measure: "ticket_line_items.amount"
+        aggregation: "sum"
+        metric_type: "revenue"
+
+    count:
+      display_name: "Count"
+      description: "Count of entities or records (context-dependent)"
+      aliases:
+        - "count"
+        - "number"
+        - "number of"
+        - "total count"
+        - "total number"
+        - "quantity"
+        - "amount"
+        - "sum"
+        - "total"
+        - "count of"
+        - "number of records"
+        - "record count"
+        - "entity count"
+      cube_mapping:
+        primary_field: "ticket_line_items.quantity"  # For ticket/quantity counting
+      resolved_value:
+        measure: "count"
+        aggregation: "count"
+        metric_type: "count"
+
+  groups:
+    shows:
+      display_name: "Shows"
+      description: "Group analysis by shows/productions"
+      aliases:
+        - "shows"
+        - "productions"
+        - "by show"
+        - "by production"
+        - "per show"
+        - "per production"
+        - "each show"
+        - "each production"
+        - "show breakdown"
+        - "production breakdown"
+        - "performance"
+        - "performances"
+        - "play"
+        - "plays"
+        - "musical"
+        - "musicals"
+        - "title"
+        - "titles"
+      cube_mapping:
+        primary_field: "productions.name"
+        filter_field: "productions.id"
+      resolved_value:
+        group_by: "production"
+        entity_type: "production"
+        dimension: "productions.name"
+
+    venues:
+      display_name: "Venues"
+      description: "Group analysis by venues/theaters"
+      aliases:
+        - "venues"
+        - "theaters"
+        - "theatres"
+        - "by venue"
+        - "by theater"
+        - "per venue"
+        - "per theater"
+        - "each venue"
+        - "each theater"
+        - "venue breakdown"
+        - "theater breakdown"
+        - "location"
+        - "locations"
+        - "facility"
+        - "facilities"
+      cube_mapping:
+        primary_field: "ticket_line_items.venue_id"
+        filter_field: "ticket_line_items.venue_id"
+      resolved_value:
+        group_by: "venue"
+        entity_type: "venue"
+        dimension: "ticket_line_items.venue_id"
+
+    retailers:
+      display_name: "Retailers"
+      description: "Group analysis by ticket retailers/platforms"
+      aliases:
+        - "retailers"
+        - "platforms"
+        - "sellers"
+        - "by retailer"
+        - "by platform"
+        - "per retailer"
+        - "per platform"
+        - "each retailer"
+        - "each platform"
+        - "retailer breakdown"
+        - "platform breakdown"
+        - "channel"
+        - "channels"
+        - "outlet"
+        - "outlets"
+      cube_mapping:
+        primary_field: "retailers.name"
+        filter_field: "retailers.id"
+      resolved_value:
+        group_by: "retailer"
+        entity_type: "retailer"
+        dimension: "retailers.name"
+
+    postcodes:
+      display_name: "Postcodes"
+      description: "Group analysis by postcodes/zip codes"
+      aliases:
+        - "postcodes"
+        - "postcode"
+        - "zip codes"
+        - "zip code"
+        - "postal codes"
+        - "postal code"
+        - "by postcode"
+        - "by zip"
+        - "per postcode"
+        - "each postcode"
+        - "postcode breakdown"
+      cube_mapping:
+        primary_field: "ticket_line_items.postcode"
+        filter_field: "ticket_line_items.postcode"
+      resolved_value:
+        group_by: "postcode"
+        entity_type: "postcode"
+        dimension: "ticket_line_items.postcode"
+
+  conditions:
+    entity_count:
+      display_name: "Entity Count"
+      description: "Count distinct entities in a group"
+      aliases:
+        - "how many venues"
+        - "how many productions"
+        - "how many shows"
+        - "how many retailers"
+        - "number of venues"
+        - "number of productions"
+        - "number of shows"
+        - "number of retailers"
+        - "count of venues"
+        - "count of productions"
+        - "count of shows"
+        - "count of retailers"
+        - "total venues"
+        - "total productions"
+        - "total shows"
+        - "total retailers"
+        - "how many"  # Generic entity counting
+      resolved_value:
+        condition_type: "entity_count"
+        operation: "count_distinct"
+
+    top_n:
+      display_name: "Top N"
+      description: "Top N ranking condition"
+      aliases:
+        - "top"
+        - "best"
+        - "highest"
+        - "most"
+        - "greatest"
+        - "top 5"
+        - "top five"
+        - "best 5"
+        - "best five"
+        - "highest 5"
+        - "highest five"
+        - "top 10"
+        - "top ten"
+        - "best 10"
+        - "best ten"
+      resolved_value:
+        ranking: "descending"
+        type: "top_n"
+
+    comparison:
+      display_name: "Comparison"
+      description: "Comparison between entities or time periods"
+      aliases:
+        - "vs"
+        - "versus"
+        - "compared to"
+        - "compared with"
+        - "against"
+        - "compare"
+        - "comparing"
+        - "comparison"
+        - "between"
+        - "difference"
+        - "differences"
+      resolved_value:
+        condition_type: "comparison"
+        operation: "compare"
+
+    threshold:
+      display_name: "Threshold"
+      description: "Threshold conditions like 'more than', 'over', 'above'"
+      aliases:
+        - "more than"
+        - "greater than"
+        - "over"
+        - "above"
+        - "exceeds"
+        - "beyond"
+        - "at least"
+        - "minimum"
+        - "min"
+      resolved_value:
+        condition_type: "threshold"
+        operation: "greater_than"
+
+    search_filter:
+      display_name: "Search Filter"
+      description: "Text search and filtering operations"
+      aliases:
+        - "contain"
+        - "contains"
+        - "containing"
+        - "include"
+        - "includes"
+        - "including"
+        - "starts with"
+        - "begins with"
+        - "ends with"
+        - "finishes with"
+        - "like"
+        - "similar to"
+        - "matches"
+        - "matching"
+        - "has"
+        - "with"
+      resolved_value:
+        condition_type: "search_filter"
+        operation: "text_search"
+
+  time_expression:
+    monthly:
+      display_name: "Monthly"
+      description: "Monthly time granularity"
+      aliases:
+        - "monthly"
+        - "by month"
+        - "per month"
+        - "each month"
+        - "month by month"
+        - "month over month"
+        - "monthly basis"
+        - "monthly breakdown"
+      resolved_value:
+        granularity: "monthly"
+        time_dimension: "month"
+
+    last_month:
+      display_name: "Last Month"
+      description: "Previous month time period"
+      aliases:
+        - "last month"
+        - "previous month"
+        - "prior month"
+        - "the month before"
+        - "month ago"
+        - "past month"
+      resolved_value:
+        time_period: "last_month"
+        granularity: "monthly"
+        relative_offset: -1
+
+# ===== ANALYSIS CONTEXTS =====
+analysis_contexts:
+  simple_analysis:
+    display_name: "Simple Analysis"
+    description: "Basic metric analysis with dimensional breakdown"
+    data_requirements:
+      base_metrics: ["primary_metric"]
+      dimensional_breakdown: ["entity_grouping"]
+      time_filtering: ["optional_time_range"]
+    analysis_parameters:
+      complexity: "low"
+      aggregation: "basic"
+    output_specifications:
+      format: "simple"
+      visualization: "basic"
+
+  comparison:
+    display_name: "Comparison Analysis"
+    description: "Compare entities, metrics, or time periods"
+    data_requirements:
+      base_metrics: ["primary_metric"]
+      comparison_dimensions: ["entity_grouping"]
+    analysis_parameters:
+      complexity: "medium"
+      aggregation: "grouped"
+    output_specifications:
+      format: "comparative"
+      visualization: "side_by_side"
+
+  trend_analysis:
+    display_name: "Trend Analysis"
+    description: "Analyze patterns and changes over time"
+    data_requirements:
+      time_series_data: ["temporal_breakdown"]
+      granularity_options: ["daily", "weekly", "monthly", "quarterly"]
+    analysis_parameters:
+      complexity: "medium"
+      aggregation: "time_series"
+    output_specifications:
+      format: "temporal"
+      visualization: "time_series"
+
+  schema_info:
+    display_name: "Schema Information"
+    description: "Provide schema and data discovery information"
+    data_requirements:
+      schema_metadata: ["available_cubes", "field_definitions"]
+      entity_types: ["production", "venue", "retailer", "customer"]
+    analysis_parameters:
+      complexity: "low"
+      aggregation: "none"
+    output_specifications:
+      format: "informational"
+      visualization: "none"
+
+ 

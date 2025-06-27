@@ -1,0 +1,162 @@
+# Encore AI Development Rules
+
+## Core Principles
+- **MINIMAL CODE**: Write the least code possible to solve the problem
+- **FAIL FAST**: No defensive coding unless absolutely warranted
+- **SPARSE ERROR HANDLING**: Only catch at natural boundaries (API endpoints, network calls)
+- **NO FALLBACKS**: Don't add fallback logic unless explicitly needed
+- **NO MOCKS**: Never use mock data - always use real data
+- **CHECK EXISTING FIRST**: Always check existing code and logic before implementing new functionality to avoid reimplementations and regression
+- **LLM-FIRST PATTERN**: Design everything for LLM consumption and decision-making
+
+## Critical CONCEPTS to Preserve (NOT implementations)
+1. **Cube.js Query Logic**: Two-model architecture concept (exchange_models + concept_models) - find the optimal implementation
+2. **JWT Tenant Isolation**: Multi-tenant security approach - keep the security, simplify the code
+3. **Concept Resolution**: The idea of concept definitions - discover best approach (maybe YAML, maybe not)
+4. **Dimension Handling**: Names from DB for dimensions without IDs - this approach works
+5. **Entity Resolution**: PostgreSQL trigram similarity concept - simplified but effective
+
+## Implementation Philosophy
+- Start with minimal viable approach
+- Let patterns emerge naturally
+- Refactor only when it adds value
+- Maybe the LLM can handle more complexity than we think
+- Ship what works in one week
+
+## Code Style
+- Use Pydantic v2 models, not Dicts
+- Use async/await for all I/O operations (enables concurrent operations and better performance)
+- No premature optimization (no caching, parallel execution yet)
+- Test with real data only (Outsiders, Hell's Kitchen, Gatsby)
+- EVERYTHING runs in Docker using docker-compose
+- Document all code with clear docstrings and comments where needed
+
+## Naming Conventions
+- **NEVER use vague descriptors**: No "simple", "enhanced", "basic", "advanced", "lightweight", "heavy"
+- **Use specific names**: FrameExtractor (not SimpleFrameExtractor), CubeService (not EnhancedCubeService)
+- **Be concrete**: Use names that describe WHAT it does, not HOW WELL it does it
+- **No relative terms**: Avoid "better", "improved", "new", "old", "legacy"
+- **No extra words in filenames**: ARCHITECTURE.md (not ORCHESTRATED_ARCHITECTURE_FINAL.md)
+- **NEVER duplicate documentation**: Always update existing docs, ask permission first
+- **SINGLE SOURCE OF TRUTH**: Each concept in ONE document only
+
+## Engineering Discipline
+- **AVOID OVERENGINEERING**: Simple solutions over complex architectures
+- **ROOT CAUSE ANALYSIS**: Always find the real problem, never patch symptoms
+- **NO HACKY SHORTCUTS**: Write clean code even under time pressure
+- **AVOID TUNNEL VISION**: Step back when debugging - the problem might be elsewhere
+- **NO BANDAID FIXES**: If it doesn't work, understand why - don't add workarounds
+- **SPARSE DOCUMENTATION**: Minimal docs that stay synchronized - avoid divergent documentation at all costs
+- **SINGLE SOURCE OF TRUTH**: Each concept documented in ONE place only
+- **HONEST FAILURES**: Let real errors bubble up with stack traces - no silent failures or generic error messages
+
+## Architecture Rules
+- **Frame-based understanding**: Semantic frames (mentions + relations) contain ALL understanding
+- **NO intent routing**: Orchestrator uses frames directly, not intent categories
+- **Single-task execution**: One task at a time with replanning based on results
+- Capabilities wrap services, don't replace them
+- Services do data access, capabilities do business logic
+- LLM decides what to do, not hardcoded methods
+- Self-contained services (NO bridges to external code)
+- Design APIs for LLM consumption (clear descriptions, structured outputs)
+- Frame extraction with mentions + relations (proven pattern)
+- NO synthesis/comparison as separate concepts - use capabilities
+- Stick to documented architecture - avoid reinventing
+
+## Error Handling Rules
+- **ONLY catch at boundaries**: API endpoints and network calls
+- **NO defensive programming**: Don't check if things exist unless required
+- **NO generic error messages**: "An error occurred" tells us nothing
+- **NO silent failures**: If something breaks, we want to know immediately
+- **Real errors bubble up**: Let actual exceptions with stack traces surface
+- **Add safeguards only when needed**: Start sparse, add when you hit real issues
+- **Simple loop protection**: Basic counters, not complex circuit breakers
+
+## Safety Rules for Autonomous Development
+- **NEVER delete existing code** without explicit approval
+- **ALWAYS test bridges** before replacing implementations
+- **LOG all decisions** made by LLMs for audit trail
+- **VALIDATE LLM outputs** before executing (especially for data modifications)
+- **LIMIT scope** of each change to one capability at a time
+- **USE typed interfaces** to prevent LLM hallucinations about data structures
+- **REQUIRE explicit user confirmation** for any data-modifying operations
+
+## Docker & Deployment
+- ALL services run in Docker containers
+- Use docker-compose for orchestration
+- Mount code volumes for development
+- Environment variables in .env file
+- Health checks for all services
+- Logging to stdout for container compatibility
+
+## Testing & Collaboration Process
+### Our Working Agreement
+1. **Claude implements** - I write code based on specifications
+2. **You review** - As peer reviewer, you check the implementation
+3. **Claude creates tests** - I write comprehensive test files
+4. **You run & debug** - You execute tests and handle debugging
+5. **Collaborate on fixes** - You may ask me to help with specific issues
+
+### Testing Rules
+- **ALL tests in `/tests` folder** - No test files in root or other directories (except run_all_tests.py)
+- **No mocks** - Tests use real connections or skip honestly
+- **Comprehensive test files** - Unit tests (no deps) and integration tests (real services)
+- **Proper pytest markers** - @pytest.mark.unit, @pytest.mark.integration, etc.
+- **Test with real data** - Outsiders, Hell's Kitchen, Gatsby
+- **Tests fail honestly** - When services aren't available
+
+### Test File Organization
+```
+tests/
+├── test_*.py         # All test files start with test_
+├── conftest.py       # Pytest configuration and fixtures
+└── __init__.py       # Makes it a package
+
+# These are OK in root:
+run_all_tests.py      # Master test runner
+test_connections.py   # Service connection checker
+```
+
+### Test File Docstring Requirements
+Every test file MUST have a docstring at the top with:
+1. Brief description of what's being tested
+2. Bullet list of specific test areas
+3. Docker-compose run commands that can be copy-pasted
+
+Example:
+```python
+"""
+Tests for ServiceName - brief description
+
+This file tests:
+- Specific feature 1
+- Specific feature 2
+- Specific feature 3
+
+Run: docker-compose run --rm test python -m pytest tests/test_service.py -v
+Run specific test: docker-compose run --rm test python -m pytest tests/test_service.py::TestClass::test_method -v
+Run only unit tests: docker-compose run --rm test python -m pytest tests/test_service.py -v -m unit
+"""
+```
+
+## TODO Management (CRITICAL)
+- **MARK items as done** - Don't delete, mark with ✅ or change [ ] to [x]
+- **NO radical changes to TODO list** - Add new items, mark done, but don't restructure
+- **Write TODOs for amnesia** - Assume zero context when reading later
+- **Include context in TODOs** - WHY this task exists, WHAT it connects to
+- **Add code locations** - WHERE to implement (file paths)
+- **Document decisions** - WHICH approach was chosen and why
+- **Update after EVERY session** - Never leave stale TODOs
+
+## LLM-First Design Patterns
+- Capability descriptions must be LLM-parseable
+- Use structured outputs (JSON/Pydantic) for LLM responses
+- Provide clear examples in all interfaces
+- Design for composability - LLM should understand how to combine capabilities
+- Include semantic descriptions, not just technical specs
+
+## Time Constraint
+- ONE WEEK TO DELIVER
+- Client and funding at risk
+- Focus on what works, not perfection
+- Reuse existing proven CONCEPTS (not necessarily implementations)

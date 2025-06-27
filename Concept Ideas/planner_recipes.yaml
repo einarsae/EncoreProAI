@@ -1,0 +1,270 @@
+# ===== PLANNER RECIPES =====
+# High-level planning patterns for LLM-driven task decomposition
+# Provides scaffolding while letting LLM handle complexity
+
+metadata:
+  version: "1.0.0"
+  description: "LLM planning patterns with relationship-aware guidance"
+  last_updated: "2025-01-01"
+  # BASELINE: A result set is considered too large if it exceeds 100 records or cannot be displayed clearly in a summary. If this occurs, aggregate, limit, or prompt for clarification.
+
+# ===== CORE PLANNING PATTERNS =====
+patterns:
+  simple_analysis:
+    prompt_template: |
+      For simple analysis, create a plan that:
+      - Retrieves the requested metric(s) for the specified entities, timeframes, or groups
+      - Uses grouping or filtering if user preferences are specified
+      - If the result set is too large, add an aggregation or prompt for clarification
+    description: |
+      Used for single-metric, single-entity queries (e.g. "total revenue for Hamilton").
+      Structure:
+        1. One data_retrieval task for the requested metric(s), entity, and timeframe.
+      Required analysis_context fields:
+        - aggregation_type: [total, average, group_by]
+        - temporal_granularity: [day, week, month, quarter]
+      Sample AgentTask output:
+        task_id: t1
+        task_intent: simple_analysis
+        stage: data_retrieval
+        analysis_context:
+          aggregation_type: total
+          temporal_granularity: month
+        task_description: "Retrieve total revenue for Hamilton by month"
+        component_mapping:
+          entity_refs: ["Hamilton"]
+          concept_refs: ["revenue"]
+        cube_query: {...}
+        cube_query_confidence: 0.95
+        reasoning: "Single-step retrieval for a single metric and entity."
+
+  comparison:
+    prompt_template: |
+      For comparison, create a plan that:
+      - For side-by-side comparisons: One data_retrieval task per entity/metric/time + synthesis
+      - For filtering comparisons: Use dependencies with placeholders (e.g. "shows > Chicago")
+        * t1: Get baseline value (e.g. Chicago average)
+        * t2: Get filtered results using {{t1}} placeholder in filters
+      - Minimizes the number of cube calls by batching where possible
+      - If the result set is too large, add aggregation or prompt for clarification
+    description: |
+      Used when comparing entities, metrics, or time periods. Supports two patterns:
+      
+      **Side-by-side comparison** (e.g. "compare Hamilton vs Wicked attendance"):
+      Structure:
+        1. One data_retrieval task per entity/metric/time
+        2. One synthesis task to compare results
+      
+      **Filtering comparison** (e.g. "shows with higher revenue than Chicago"):
+      Structure:
+        1. Get baseline value (Chicago revenue)
+        2. Get filtered results where metric > {{t1}}
+      
+      Required analysis_context fields for synthesis:
+        - comparison_type: [side_by_side, filtering, trend, normalized]
+        - baseline_sources: [task_id1, task_id2] (for side_by_side)
+        - filter_reference: task_id (for filtering)
+      
+      Sample AgentTask output for filtering:
+        task_id: t2
+        task_intent: comparison
+        stage: data_retrieval
+        depends_on_tasks: [t1]
+        tool_parameters:
+          filters: [{"operator": "gt", "values": ["{{t1}}"]}]
+        task_description: "Get shows where average price > t1 result"
+        component_mapping:
+          concept_refs: ["average_price"]
+        reasoning: "Filtered query using baseline from t1."
+
+  trend_analysis:
+    prompt_template: |
+      For trend analysis, create a plan that:
+      - Retrieves the relevant metric(s) over the specified time range and granularity
+      - Adds an analysis step to interpret the trend
+      - If the result set is too large, aggregate or prompt for clarification
+    description: |
+      Used for time-series analysis (e.g. "revenue trend for Chicago over the last 6 months").
+      Structure:
+        1. One data_retrieval task for the metric(s), entity, and time range (with granularity).
+        2. One analysis task to interpret the trend (e.g. direction, rate of change).
+      Required analysis_context fields for analysis:
+        - trend_direction: [increasing, decreasing, stable]
+        - rate_of_change: float
+      Sample AgentTask output for analysis step:
+        task_id: t2
+        task_intent: trend_analysis
+        stage: analysis
+        depends_on_tasks: [t1]
+        analysis_context:
+          trend_direction: increasing
+          rate_of_change: 0.12
+        task_description: "Analyze revenue trend for Chicago over the last 6 months"
+        component_mapping:
+          entity_refs: ["Chicago"]
+          concept_refs: ["revenue"]
+        reasoning: "Analysis step interprets the trend in the retrieved data."
+
+  ranking:
+    prompt_template: |
+      For ranking, create a plan that:
+      - Retrieves the top N results for the specified metric and grouping
+      - Orders results by the ranking metric in descending order
+      - Applies a limit (N) based on user preference or default
+      - If the result set is too large, prompt for clarification
+    description: |
+      Used for top-N or leaderboard queries (e.g. "top 5 shows by revenue this year").
+      Structure:
+        1. One data_retrieval task with ordering and limit.
+      Required analysis_context fields:
+        - top_n: int
+        - sort_metric: str
+      Sample AgentTask output:
+        task_id: t1
+        task_intent: ranking
+        stage: data_retrieval
+        analysis_context:
+          top_n: 5
+          sort_metric: revenue
+        task_description: "Retrieve top 5 shows by revenue this year"
+        component_mapping:
+          concept_refs: ["revenue"]
+        cube_query: {...}
+        cube_query_confidence: 0.95
+        reasoning: "Single-step retrieval for a leaderboard."
+
+  schema_info:
+    prompt_template: |
+      For schema information, create a plan that:
+      - Provides schema or data availability details directly
+      - No data retrieval step is needed
+    description: |
+      Used for queries about available data, schema, or capabilities (e.g. "what metrics can I analyze?").
+      Structure:
+        1. One schema_info task (no data retrieval).
+      Required analysis_context fields:
+        - info_type: [metrics, dimensions, entities, sample_queries]
+      Sample AgentTask output:
+        task_id: t1
+        task_intent: schema_info
+        stage: schema_info
+        analysis_context:
+          info_type: metrics
+        task_description: "Provide available metrics and schema information"
+        component_mapping: {}
+        reasoning: "Direct schema information, no data retrieval."
+
+# ===== CUBE FIELD MAPPINGS =====
+cube_mappings:
+  metrics:
+    revenue: "ticket_line_items.amount"
+    attendance: "ticket_line_items.quantity"
+    sales: "ticket_line_items.amount"  # alias for revenue
+    average_revenue: "ticket_line_items.amount_average"
+    average_price: "ticket_line_items.amount_average"  # alias for average_revenue
+    ticket_price: "ticket_line_items.amount"  # another alias
+    count: "productions.count"
+    
+  dimensions:
+    productions: "productions.name"
+    shows: "productions.name"  # alias
+    venues: "ticket_line_items.venue_id"
+    retailers: "retailers.name"
+    cities: "ticket_line_items.city"
+    postcodes: "ticket_line_items.postcode"
+    ticket_types: "ticket_types.name"
+    price_bands: "price_bands.name"
+    sales_channels: "sales_channels.name"
+    
+  time_fields:
+    default: "ticket_line_items.created_at_local"
+    created_at: "ticket_line_items.created_at_local"
+    event_start: "events.starts_at_local"
+
+# ===== CUBE EXAMPLES =====
+cube_examples:
+  simple_filter:
+    description: "Basic filtering with single condition"
+    example: |
+      {
+        "measures": ["ticket_line_items.amount"],
+        "dimensions": ["productions.name"],
+        "filters": [
+          {
+            "member": "productions.name",
+            "operator": "contains",
+            "values": ["Hamilton"]
+          }
+        ]
+      }
+  
+  complex_logical:
+    description: "Complex AND/OR logic for advanced filtering"
+    example: |
+      {
+        "measures": ["ticket_line_items.quantity"],
+        "filters": [
+          {
+            "and": [
+              {
+                "or": [
+                  {
+                    "member": "retailers.id",
+                    "operator": "equals",
+                    "values": ["retailer-1", "retailer-2"]
+                  },
+                  {
+                    "member": "price_bands.name",
+                    "operator": "contains",
+                    "values": ["VIP", "PREMIUM"]
+                  }
+                ]
+              },
+              {
+                "member": "productions.id",
+                "operator": "equals",
+                "values": ["production-id"]
+              }
+            ]
+          }
+        ]
+      }
+  
+  time_analysis:
+    description: "Time dimensions with granularity and date ranges"
+    example: |
+      {
+        "measures": ["ticket_line_items.amount"],
+        "timeDimensions": [
+          {
+            "dimension": "ticket_line_items.created_at_local",
+            "dateRange": "Last 6 months",
+            "granularity": "week"
+          }
+        ]
+      }
+  
+  ranking_query:
+    description: "Top N ranking with ordering and limits"
+    example: |
+      {
+        "measures": ["ticket_line_items.amount_average"],
+        "dimensions": ["productions.name"],
+        "order": {
+          "ticket_line_items.amount_average": "desc",
+          "productions.name": "asc"
+        },
+        "limit": 10
+      }
+
+# ===== TEMPLATE VARIABLES =====
+# Common template variables and their default values
+template_defaults:
+  primary_metric: "ticket_line_items.amount"
+  entity_grouping: "productions.name"
+  time_field: "ticket_line_items.created_at_local"
+  granularity: "month"
+  n_value: 5
+  default_limit: 100
+  available_operators: "equals, notEquals, contains, startsWith, gt, gte, lt, lte, set, notSet, inDateRange"
+  common_date_ranges: "today, yesterday, This week, Last week, Last 30 days, This month, Last quarter, This year" 
