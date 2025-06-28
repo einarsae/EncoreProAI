@@ -10,8 +10,10 @@ The system uses LangGraph for proven workflow orchestration with capability inte
 
 1. **Frame Extraction**: Extract only entities and concepts that need resolution
 2. **Entity Resolution**: Resolve entities to database records (preserving ambiguity)
-3. **Concept Resolution**: Resolve concepts using memory-based learning
-4. **Orchestration**: LLM creates ONE task at a time with built-in replanning
+3. **Orchestration**: LLM creates ONE task at a time with built-in replanning
+   - Concept resolution happens on-demand here during context building
+4. **Execution**: Run the single capability and return results
+5. **Loop**: Orchestrator sees results and adapts
 
 **Key Insight**: Single-task execution with continuous replanning - the LLM sees results and adapts the plan dynamically!
 
@@ -30,10 +32,17 @@ See [ORCHESTRATION.md](./ORCHESTRATION.md) for implementation details.
 ### 1. Workflow Structure
 
 ```
-START → extract_frame → resolve_entities → resolve_concepts → resolve_time → orchestrate → END
-                                                                                     ↑__________|
-                                                                                   (loop until done)
+START → extract_frames → resolve_entities → orchestrate → execute_capability → orchestrate
+                                                   ↑                                    |
+                                                   |____________________________________|
+                                                            (loop until done)
+                                                                    ↓
+                                                                   END
 ```
+
+- Time resolution: handled by capabilities when they need date ranges
+- Concept resolution: done on-demand during orchestrator context building
+- Execution nodes: separate nodes for each capability (chat, ticketing_data, event_analysis)
 
 ### 2. Simplified Frame Extraction
 
@@ -47,11 +56,12 @@ async def extract_frame_node(state: AgentState) -> AgentState:
     # Frame contains:
     # - entities: List[EntityToResolve] - things like "Chicago", "Gatsby"  
     # - concepts: List[str] - things like "revenue", "overwhelmed"
+    # NO time extraction - per user feedback and implementation
     
     # Example: "Show me Chicago revenue last month"
     # entities: [EntityToResolve(id="e1", text="Chicago", type="production")]
     # concepts: ["revenue"]
-    # (Time expressions handled by orchestrator, not pre-resolved)
+    # (Time expressions like "last month" handled by orchestrator when needed)
     
     state.semantic.frames = [frame]
     state.semantic.current_frame_id = "0"  # Index in frames list
@@ -67,50 +77,37 @@ async def resolve_entities_node(state: AgentState) -> AgentState:
     
     for mention in frame.mentions:
         if mention.kind == ENTITY:
-            candidates = await entity_resolver.find_candidates(
-                text=mention.text,
-                entity_type=mention.subtype
+            # Actual implementation uses simpler structure
+            candidates = await entity_resolver.resolve(
+                entity_type=entity.type,
+                text=entity.text
             )
             
-            if len(candidates) == 1:
-                mention.context["resolved_id"] = candidates[0].id
-                mention.context["resolution_type"] = "single"
-            elif len(candidates) > 1:
-                # Preserve ALL candidates for LLM to choose (can select multiple!)
-                mention.context["resolution_type"] = "ambiguous"
-                mention.context["candidate_entities"] = candidates
-                mention.context["selection_hints"] = {
-                    "revenue": [c.revenue for c in candidates],
-                    "status": [c.status for c in candidates]
-                }
+            resolved = ResolvedEntity(
+                id=entity.id,
+                text=entity.text,
+                type=entity.type,
+                candidates=candidates  # List of EntityCandidate objects
+            )
+            frame.resolved_entities.append(resolved)
     
     return state
 ```
 
-#### ResolveConceptsNode
+#### Concept Resolution
 ```python
-async def resolve_concepts_node(state: AgentState) -> AgentState:
-    """Resolve concepts using memory-based learning"""
-    
-    frame = get_current_frame(state)
-    
-    # Resolve each concept to memory context
-    for concept_text in frame.concepts:
-        memory_context = await concept_resolver.resolve(concept_text)
-        
-        resolved_concept = ResolvedConcept(
-            id=f"c{len(frame.resolved_concepts)+1}",
-            text=concept_text,
-            memory_context=MemoryContext(
-                concept=concept_text,
-                related_queries=memory_context.get("related_queries", []),
-                usage_count=memory_context.get("usage_count", 0),
-                relevance_score=memory_context.get("relevance_score", 0.5)
-            )
-        )
-        frame.resolved_concepts.append(resolved_concept)
-    
-    return state
+# In orchestrator context building:
+def _build_orchestration_context(self, state: AgentState) -> str:
+    # ...
+    # Resolve concepts for context
+    concept_insights = []
+    for concept in concepts:
+        memory_context = self.concept_resolver.resolve(concept, state.core.user_id)
+        if memory_context.get("source") == "memory":
+            concept_insights.append(f"  - {concept}: Previously used for {memory_context.get('concept')} analysis")
+        else:
+            concept_insights.append(f"  - {concept}: Maps to {memory_context.get('concept')}")
+```
 
 ### 3. Orchestration with Single-Task Execution
 
@@ -121,18 +118,20 @@ async def orchestrate_node(state: AgentState) -> AgentState:
     
     frame = get_current_frame(state)
     
-    # Handle ambiguous entities
-    ambiguous_mentions = [
-        m for m in frame.mentions 
-        if m.context.get("resolution_type") == "ambiguous"
+    # Handle ambiguous entities (actual implementation)
+    ambiguous_entities = [
+        e for e in frame.resolved_entities 
+        if len(e.candidates) > 1
     ]
     
     orchestration_prompt = f"""
     Query: {state.core.query}
-    Frame: {frame}
+    Frame Understanding:
+    - Entities: {[f"{e.text} ({e.type})" for e in frame.entities]}
+    - Concepts: {frame.concepts}
     
-    {f"AMBIGUOUS ENTITIES:" if ambiguous_mentions else ""}
-    {format_ambiguous_entities(ambiguous_mentions)}
+    {f"AMBIGUOUS ENTITIES:" if ambiguous_entities else ""}
+    {format_ambiguous_entities(ambiguous_entities)}
     
     Completed Tasks:
     {format_completed_tasks(state.execution.completed_tasks)}
@@ -329,16 +328,22 @@ class SemanticState(BaseModel):
     current_frame_id: Optional[str]
     
 class Frame(BaseModel):
-    """Simplified semantic unit for resolution"""
-    query: str                    # Original text for this semantic unit
-    entities: List[str]           # ["Chicago", "Gatsby"] 
-    times: List[str]             # ["last month", "yesterday"]
-    concepts: List[str]          # ["revenue", "overwhelmed"]
+    """Actual implementation structure"""
+    # Dual ID system
+    id: str  # Simple ID from extractor (f1, f2)
+    frame_id: str  # Persistent UUID
+    
+    # Content
+    query: str  # Original text for this semantic unit
+    
+    # Things to resolve
+    entities: List[EntityToResolve]  # Entities to resolve
+    concepts: List[str]  # Concepts for memory lookup
     
     # Resolutions (populated after extraction)
-    resolved_entities: List[ResolvedEntity]  # id, text, candidates
-    resolved_times: List[ResolvedTime]      # id, text, date_range
-    resolved_concepts: List[ResolvedConcept] # id, text, memory_context
+    resolved_entities: List[ResolvedEntity]
+    # NO resolved_concepts - handled on-demand by orchestrator
+    # NO resolved_times - handled by capabilities when needed
 
 class ExecutionState(BaseModel):
     """Task execution with single-task pattern"""
@@ -458,28 +463,25 @@ class RealDataTests:
 
 ```python
 def get_current_frame(state: AgentState) -> Frame:
-    """Safely get current frame"""
-    if state.semantic.current_frame_id:
-        for frame in state.semantic.frames:
-            if frame.frame_id == state.semantic.current_frame_id:
-                return frame
-        raise ValueError(f"Frame {state.semantic.current_frame_id} not found")
+    """Get current frame by index (actual implementation)"""
+    if state.semantic.current_frame_index is not None:
+        if 0 <= state.semantic.current_frame_index < len(state.semantic.frames):
+            return state.semantic.frames[state.semantic.current_frame_index]
     elif state.semantic.frames:
         return state.semantic.frames[0]
-    else:
-        raise ValueError("No frames available")
+    return None
 
-def format_ambiguous_entities(mentions: List[Mention]) -> str:
-    """Format ambiguous entities for LLM decision"""
+def format_ambiguous_entities(entities: List[ResolvedEntity]) -> str:
+    """Format ambiguous entities for LLM decision (actual implementation)"""
     output = []
-    for mention in mentions:
-        candidates = mention.context["candidate_entities"]
-        output.append(f"""
-        "{mention.text}" could be:
-        {[f"- {c.name} (revenue: ${c.revenue}, status: {c.status})" for c in candidates]}
-        
-        You can select ONE OR MORE if relevant to the query.
-        """)
+    for entity in entities:
+        if len(entity.candidates) > 1:
+            output.append(f"""
+            "{entity.text}" could be:
+            {chr(10).join([f"- {c.disambiguation}" for c in entity.candidates])}
+            
+            Select the most relevant one(s) for the query.
+            """)
     return "\n".join(output)
 
 def resolve_placeholders(inputs: dict, completed_tasks: dict) -> dict:

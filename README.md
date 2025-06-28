@@ -242,6 +242,26 @@ AI: "Your top 3 shows by revenue are:
     and Chicago Broadway provides reliable baseline revenue."
 ```
 
+## 📚 Documentation
+
+### Core Documentation
+- [Architecture](docs/ARCHITECTURE.md) - System design and workflow
+- [Services](docs/SERVICES.md) - Core service implementations
+- [Capabilities](docs/CAPABILITIES.md) - Business logic components
+- [Orchestration](docs/ORCHESTRATION.md) - Single-task execution pattern
+- [Error Handling](docs/ERROR_HANDLING.md) - Fail-fast philosophy
+
+### Key Features
+- [TicketingData Features](docs/TICKETING_DATA_FEATURES.md) - Advanced Cube.js capabilities
+- [ID-Based Filtering](docs/ID_BASED_FILTERING.md) - How entity IDs enable precision
+- [Drilldowns](docs/DRILLDOWNS.md) - Hierarchical data exploration
+- [Cube Query Principles](docs/CubeQueryPrinciples.md) - Query generation guide
+
+### Implementation Guides
+- [TODO](docs/TODO.md) - Implementation roadmap
+- [Query Types](docs/QUERY_TYPES.md) - Understanding different queries
+- [Glossary](docs/GLOSSARY.md) - Key terminology
+
 ## ⚠️ Critical Architecture Decisions
 
 ### Why Frame-Based Over Intent Routing?

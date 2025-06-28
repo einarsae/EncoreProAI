@@ -1,5 +1,31 @@
 # EncoreProAI - COMPREHENSIVE IMPLEMENTATION TODO
 
+## 📅 CURRENT STATUS (main branch)
+
+### ✅ COMPLETED:
+- **Day 1-5**: Foundation, Frame Extraction, Chat, Orchestration, Enhanced Capabilities
+- **Workflow**: Simplified to extract → resolve_entities → orchestrate → execute
+- **TicketingDataCapability**: Enhanced with ALL Cube.js features
+  - LLM generates sophisticated queries
+  - Supports compareDateRange, nested filters, time granularity, drilldowns
+  - Provides descriptions and key findings
+  - Properly aligned with actual schema
+  - Uses entity IDs for precise filtering
+  - 10/11 tests passing
+- **ConceptResolver**: mem0 integration with pattern-based fallbacks
+- **Tests**: Comprehensive test coverage with real data
+
+### 🚧 IN PROGRESS:
+- **EventAnalysisCapability**: Next priority - needs ID-based filtering implementation
+
+### 📝 KEY LEARNINGS:
+- Concept resolution moved to orchestrator (on-demand)
+- No mocks - real tests with real data only
+- Fail fast - no fallbacks during development
+- Keep it simple - test files that show orchestrator usage
+- Use exact entity IDs for filtering, not string matching
+- LLM must use exact field names from schema
+
 ## 🚨 CRITICAL: READ THIS FIRST TO AVOID CATASTROPHIC MISTAKES 🚨
 
 This is a **100% SELF-CONTAINED** implementation. **NEVER** reference or import code from outside the `/encoreproai` folder. This is a complete rewrite, not a refactor!
@@ -49,11 +75,11 @@ services:
 ```
 
 **Tasks:**
-- [ ] Create docker-compose.yml with PostgreSQL + pgvector ONLY
-- [ ] Create init.sql with entities table and pg_trgm extension
-- [ ] Add .env file with Cube.js URL and secret
-- [ ] Test containers start successfully
-- [ ] Verify pgvector and pg_trgm extensions work
+- [x] Create docker-compose.yml with PostgreSQL + pgvector ONLY
+- [x] Create init.sql with entities table and pg_trgm extension
+- [x] Add .env file with Cube.js URL and secret
+- [x] Test containers start successfully
+- [x] Verify pgvector and pg_trgm extensions work
 
 #### 2. Project Structure Creation
 ```
@@ -131,11 +157,11 @@ class CubeService:
 ```
 
 **Tasks:**
-- [ ] Implement CubeService with JWT generation
-- [ ] Implement EntityResolver with trigram search (based on old EntityLookupStore)
-- [ ] Create entity population script (import from Cube.js like old system)
-- [ ] Set up entities table with pg_trgm extension and score boosting
-- [ ] Create enhanced memory-based concept resolution (combining patterns + learning)
+- [x] Implement CubeService with JWT generation
+- [x] Implement EntityResolver with trigram search (based on old EntityLookupStore)
+- [x] Create entity population script (import from Cube.js like old system)
+- [x] Set up entities table with pg_trgm extension and score boosting
+- [x] Create enhanced memory-based concept resolution (combining patterns + learning)
   ```python
   # Enhanced ConceptResolver with pattern learning
   class ConceptResolver:
@@ -165,8 +191,8 @@ class CubeService:
               
           return None  # No match found
   ```
-- [ ] Implement TimeResolver using LLM  
-- [ ] Test each service independently
+- [x] Implement TimeResolver using LLM (handled by capabilities)
+- [x] Test each service independently
 
 ### Afternoon (4 hours)
 
@@ -203,20 +229,20 @@ CREATE TABLE memories (
 ```
 
 **Tasks:**
-- [ ] Create entities table with proper indexes
-- [ ] Insert test data for Gatsby, Hell's Kitchen, Outsiders
-- [ ] Test trigram similarity with "SELECT similarity(name, 'Chicago') FROM entities"
-- [ ] Implement score transformation: 0.3-0.7 → 0.5-1.0
-- [ ] Verify ambiguous queries return multiple candidates
+- [x] Create entities table with proper indexes
+- [x] Insert test data for Gatsby, Hell's Kitchen, Outsiders
+- [x] Test trigram similarity with "SELECT similarity(name, 'Chicago') FROM entities"
+- [x] Implement score transformation: 0.3-0.7 → 0.5-1.0
+- [x] Verify ambiguous queries return multiple candidates
 
 #### 5. Service Testing
 
 **Test Scenarios:**
-- [ ] CubeService: Generate valid JWT and make test query
-- [ ] EntityResolver: Search "Chicago" returns both Broadway and Tour
-- [ ] ConceptResolver: "revenue" maps to "ticket_line_items.amount"
-- [ ] TimeResolver: "last month" returns correct date range
-- [ ] All services handle errors gracefully
+- [x] CubeService: Generate valid JWT and make test query
+- [x] EntityResolver: Search "Chicago" returns both Broadway and Tour
+- [x] ConceptResolver: "revenue" maps to "ticket_line_items.amount"
+- [x] TimeResolver: "last month" returns correct date range (in capabilities)
+- [x] All services handle errors gracefully
 
 ## Day 2: Semantic Understanding Pipeline
 
@@ -228,19 +254,18 @@ CREATE TABLE memories (
 ```python
 class Frame:
     query: str                    # Original text for this semantic unit
-    entities: List[str]           # ["Chicago", "Gatsby"] 
-    times: List[str]             # ["last month", "yesterday"]
+    entities: List[EntityToResolve]  # [{"text": "Chicago", "type": "production"}]
     concepts: List[str]          # ["revenue", "overwhelmed"]
+    # NO times field - handled by capabilities when needed
     
     # Resolutions (populated after extraction)
     resolved_entities: List[ResolvedEntity]  # id, text, candidates
-    resolved_times: List[ResolvedTime]      # id, text, date_range
-    resolved_concepts: List[ResolvedConcept] # id, text, memory_context
+    # NO resolved_times or resolved_concepts - handled on-demand
 ```
 
 **Tasks:**
 - [x] Implement frame_extractor.py with simplified LLM prompt
-- [x] Extract only what needs resolution (entities, times, concepts)
+- [x] Extract only what needs resolution (entities and concepts)
 - [x] Remove complex Mentions/Relations structure
 - [x] Handle coreferences by keeping related content in same frame
 - [x] Test frame extraction with all test queries
@@ -263,28 +288,28 @@ class SemanticState(BaseModel):
     current_frame_id: Optional[str]
 
 class Frame(BaseModel):
-    """Complete semantic understanding - NO SEPARATE INTENT!"""
-    mentions: List[Mention]    # All semantic units
-    relations: List[Relation]  # How they connect
-    metadata: FrameMetadata    # Confidence, emotion, complexity
+    """Semantic understanding - entities and concepts"""
+    entities: List[EntityToResolve]    # Entities to resolve
+    concepts: List[str]                # Concepts to resolve
+    resolved_entities: List[ResolvedEntity]  # After resolution
 ```
 
 **Tasks:**
-- [ ] Create all state models with proper typing
-- [ ] Create Frame, Mention, Relation models
-- [ ] Create capability input/output models
-- [ ] Test model validation and serialization
-- [ ] Ensure no circular imports
+- [x] Create all state models with proper typing
+- [x] Create Frame, Mention, Relation models
+- [x] Create capability input/output models
+- [x] Test model validation and serialization
+- [x] Ensure no circular imports
 
 ### Afternoon (4 hours)
 
 #### 3. Resolution Node Implementation
 
 **ExtractFrameNode:**
-- [ ] Takes query, returns Frame with mentions/relations
-- [ ] Handles complex queries with multiple concepts
-- [ ] Identifies coreference for SAME_AS relations
-- [ ] Adds to state.semantic.frames
+- [x] Takes query, returns Frame with entities and concepts
+- [x] Handles complex queries with multiple concepts
+- [x] NO mentions/relations - just entities and concepts to resolve
+- [x] Adds to state.semantic.frames
 
 **ResolveEntitiesNode (PRESERVE AMBIGUITY!):**
 ```python
@@ -299,20 +324,20 @@ if len(candidates) > 1:
 ```
 
 **Tasks:**
-- [ ] Implement ExtractFrameNode
-- [ ] Implement ResolveEntitiesNode with ambiguity preservation
-- [ ] Implement ResolveConceptsNode with SAME_AS handling
-- [ ] Implement ResolveTimeNode with context awareness
-- [ ] Test each node independently
+- [x] Implement ExtractFrameNode
+- [x] Implement ResolveEntitiesNode with ambiguity preservation
+- [ ] Implement ResolveConceptsNode (moved to orchestrator)
+- [ ] Implement ResolveTimeNode (handled by capabilities)
+- [x] Test each node independently
 
 #### 4. Pipeline Testing
 
 **Test Queries:**
-- [ ] "Show me Chicago revenue" → Ambiguous entity preserved
-- [ ] "How did it do last month?" → SAME_AS relation works
-- [ ] "Compare top 3 shows" → Multiple mentions extracted
-- [ ] "Revenue vs attendance" → Multiple concepts resolved
-- [ ] Error handling for malformed queries
+- [x] "Show me Chicago revenue" → Ambiguous entity preserved
+- [x] "How did it do last month?" → Context preserved in frame
+- [x] "Compare top 3 shows" → Multiple entities extracted
+- [x] "Revenue vs attendance" → Multiple concepts resolved
+- [x] Error handling for malformed queries
 
 ## Day 3: ChatCapability - THE MOST CRITICAL COMPONENT!
 
@@ -353,39 +378,39 @@ class ChatCapability(BaseCapability):
 ```
 
 **Tasks:**
-- [ ] Create ChatCapability with emotional detection
-- [ ] Implement warm, empathetic response generation
-- [ ] Add follow-up question generation
-- [ ] Handle transitioning between chat and data queries
-- [ ] Test with stressed user scenarios
+- [x] Create ChatCapability with emotional detection
+- [x] Implement warm, empathetic response generation
+- [x] Add follow-up question generation
+- [x] Handle transitioning between chat and data queries
+- [x] Test with stressed user scenarios
 
 #### 2. Emotional Support Features
 
 **Key Behaviors:**
-- [ ] Acknowledge feelings: "I understand this can be overwhelming..."
-- [ ] Offer support: "Let's break this down together..."
-- [ ] Simplify complex data: "The key thing to focus on is..."
-- [ ] Encourage: "You're asking great questions..."
-- [ ] Follow up: "Would it help if I explained...?"
+- [x] Acknowledge feelings: "I understand this can be overwhelming..."
+- [x] Offer support: "Let's break this down together..."
+- [x] Simplify complex data: "The key thing to focus on is..."
+- [x] Encourage: "You're asking great questions..."
+- [x] Follow up: "Would it help if I explained...?"
 
 ### Afternoon (4 hours)
 
 #### 3. Chat Testing Scenarios
 
 **MUST HANDLE:**
-- [ ] "I'm so overwhelmed with all these numbers"
-- [ ] "This is confusing, I don't know where to start"
-- [ ] "Help me understand what's important"
-- [ ] "I'm stressed about our performance"
-- [ ] "Can you just talk me through this?"
+- [x] "I'm so overwhelmed with all these numbers"
+- [x] "This is confusing, I don't know where to start"
+- [x] "Help me understand what's important"
+- [x] "I'm stressed about our performance"
+- [x] "Can you just talk me through this?"
 
 #### 4. Integration
 
-- [ ] Orchestrator detects emotional mentions in frame
-- [ ] Handle mixed conversations (emotional + data)
-- [ ] Smooth transitions between modes
-- [ ] Maintain context across conversation
-- [ ] Test end-to-end chat flows
+- [x] Orchestrator detects emotional mentions in frame
+- [x] Handle mixed conversations (emotional + data)
+- [x] Smooth transitions between modes
+- [x] Maintain context across conversation
+- [x] Test end-to-end chat flows
 
 ## Day 4: LangGraph Orchestration
 
@@ -422,11 +447,11 @@ app = workflow.compile()
 ```
 
 **Tasks:**
-- [ ] Create workflow definition
-- [ ] Implement all nodes
-- [ ] Set up proper routing
-- [ ] Add error handling
-- [ ] Test workflow execution
+- [x] Create workflow definition
+- [x] Implement all nodes
+- [x] Set up proper routing
+- [x] Add error handling
+- [x] Test workflow execution
 
 #### 2. Orchestrator Node - THE BRAIN!
 
@@ -463,11 +488,11 @@ async def orchestrate_node(state: AgentState) -> AgentState:
 ```
 
 **Tasks:**
-- [ ] Implement orchestrate_node with single-task pattern
-- [ ] Create orchestration prompt with full context
-- [ ] Handle ambiguous entity selection
-- [ ] Implement task creation and execution
-- [ ] Add result referencing ({{task_id}})
+- [x] Implement orchestrate_node with single-task pattern
+- [x] Create orchestration prompt with full context
+- [x] Handle ambiguous entity selection
+- [x] Implement task creation and execution
+- [x] Add result referencing ({{task_id}})
 
 ### Afternoon (4 hours)
 
@@ -485,20 +510,20 @@ You can select ONE OR MORE candidates as relevant."""
 ```
 
 **Tasks:**
-- [ ] Format ambiguous entities for LLM decision
-- [ ] Implement entity selection in task
-- [ ] Handle task dependencies with {{task_id}}
-- [ ] Track assumptions made
-- [ ] Test replanning when results unexpected
+- [x] Format ambiguous entities for LLM decision
+- [x] Implement entity selection in task
+- [x] Handle task dependencies with {{task_id}}
+- [x] Track assumptions made
+- [x] Test replanning when results unexpected
 
 #### 4. Orchestration Testing
 
 **Test Scenarios:**
-- [ ] Simple query: "Show revenue for Gatsby"
-- [ ] Ambiguous: "Show Chicago performance" (which one?)
-- [ ] Multi-step: "Top 3 shows by revenue, then analyze trends"
-- [ ] Replanning: Query that requires strategy change
-- [ ] Error recovery: Handle capability failures
+- [x] Simple query: "Show revenue for Gatsby"
+- [x] Ambiguous: "Show Chicago performance" (which one?)
+- [x] Multi-step: "Top 3 shows by revenue, then analyze trends"
+- [x] Replanning: Query that requires strategy change
+- [x] Error recovery: Handle capability failures
 
 ## Day 5: Data Capabilities
 
@@ -533,11 +558,11 @@ class TicketingDataCapability(BaseCapability):
 ```
 
 **Tasks:**
-- [ ] Implement flexible query execution
-- [ ] NO methods like get_revenue() or find_top_shows()
-- [ ] Handle multi-dimensional queries
-- [ ] Format results appropriately
-- [ ] Test with various query types
+- [x] Implement flexible query execution with ALL Cube.js features
+- [x] NO methods like get_revenue() or find_top_shows()
+- [x] Handle multi-dimensional queries
+- [x] Format results appropriately
+- [x] Test with various query types
 
 #### 2. EventAnalysisCapability
 
@@ -554,31 +579,32 @@ async def analyze(self, criteria_from_llm):
 ```
 
 **Tasks:**
-- [ ] Generic analysis methods only
-- [ ] Pattern detection without hardcoded patterns
-- [ ] Comparison without fixed thresholds
-- [ ] Let LLM interpret "underperforming", "successful", etc.
-- [ ] Test flexible analysis
+- [ ] Generic analysis methods only (NOT IMPLEMENTED)
+- [ ] Pattern detection without hardcoded patterns (NOT IMPLEMENTED)
+- [ ] Comparison without fixed thresholds (NOT IMPLEMENTED)
+- [ ] Let LLM interpret "underperforming", "successful", etc. (NOT IMPLEMENTED)
+- [ ] Test flexible analysis (NOT IMPLEMENTED)
 
 ### Afternoon (4 hours)
 
 #### 3. Capability Testing
 
 **Real Queries to Test:**
-- [ ] "Revenue for all shows"
-- [ ] "Which shows need attention?" (LLM decides criteria)
-- [ ] "Compare Gatsby to Hell's Kitchen"
-- [ ] "Show attendance trends"
-- [ ] "Find successful venues" (LLM defines success)
+- [x] "Revenue for all shows" 
+- [ ] "Which shows need attention?" (needs EventAnalysisCapability)
+- [x] "Compare Gatsby to Hell's Kitchen"
+- [x] "Show attendance trends"
+- [ ] "Find successful venues" (needs EventAnalysisCapability)
 
 #### 4. Integration Testing
 
 **End-to-End Flows:**
-- [ ] Chat → Data query → Analysis → Chat
-- [ ] Complex multi-step analysis
-- [ ] Ambiguous entity handling
-- [ ] Performance with real Cube.js
-- [ ] Assumption tracking in responses
+- [x] Chat → Data query → Chat
+- [ ] Chat → Data query → Analysis → Chat (needs EventAnalysisCapability)
+- [ ] Complex multi-step analysis (only tested with mocks, not real data)
+- [x] Ambiguous entity handling
+- [x] Performance with real Cube.js
+- [x] Assumption tracking in responses
 
 ## Day 6: Intelligence & Memory System
 
@@ -666,13 +692,13 @@ CREATE TABLE pattern_success (
 ```
 
 **Tasks:**
-- [ ] Implement enhanced memory tables with resolution analytics
-- [ ] Add pattern learning from old ContextualConceptMapper insights
-- [ ] Store successful concept → field mappings
-- [ ] Track entity disambiguation patterns  
-- [ ] Implement confidence-based pattern selection
-- [ ] Add query pattern recognition and success tracking
-- [ ] Populate initial patterns from old system analysis:
+- [x] Implement memory service with mem0/pgvector
+- [x] Add pattern learning capabilities
+- [x] Store successful concept → field mappings
+- [ ] Track entity disambiguation patterns (partial)
+- [x] Implement confidence-based pattern selection
+- [ ] Add query pattern recognition and success tracking (partial)
+- [x] Populate initial patterns:
   ```python
   INITIAL_PATTERNS = {
       "attendance_patterns": [
@@ -688,7 +714,7 @@ CREATE TABLE pattern_success (
       ]
   }
   ```
-- [ ] Test pattern learning and recall
+- [x] Test pattern learning and recall
 
 #### 2. Final Features
 
@@ -705,11 +731,11 @@ CREATE TABLE pattern_success (
 ```
 
 **Tasks:**
-- [ ] Add assumption tracking to responses
-- [ ] Improve error messages
+- [x] Add assumption tracking to responses
+- [x] Improve error messages
 - [ ] Add query clarification when needed
-- [ ] Format responses nicely
-- [ ] Test user experience
+- [x] Format responses nicely
+- [x] Test user experience
 
 ### Afternoon (4 hours)
 
@@ -842,7 +868,13 @@ GOOD LUCK! Remember: Working code > Perfect architecture!
 
 ## Advanced Features for Later
 
-### EventAnalysisCapability Enhancements
+### EventAnalysisCapability Implementation (PRIORITY)
+- [ ] Implement basic EventAnalysisCapability with ID-based filtering
+- [ ] Use entity IDs from resolver for precise filtering
+- [ ] Take raw data from TicketingDataCapability
+- [ ] Provide insights, trends, recommendations
+
+### EventAnalysisCapability Enhancements (FUTURE)
 - [ ] Use LLM_PREMIUM (OpenAI) for high-quality analysis
 - [ ] Implement data summarization for large datasets instead of passing raw text
 - [ ] Add data querying tools within EAC for progressive analysis

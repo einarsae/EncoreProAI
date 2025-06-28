@@ -76,7 +76,7 @@ async def main():
         for dp in result.data[:3]:
             name = dp.dimensions.get('productions.name', 'Unknown')
             amount = dp.measures.get('ticket_line_items.amount', 0)
-            print(f"  • {name}: ${amount:,.0f}")
+            print(f"  • {name}: ${float(amount):,.0f}")
     
     # Demo 2: Top shows - "What are my top 5 shows?"
     print("\n\n📊 Demo 2: Top 5 Shows by Revenue")
@@ -107,7 +107,7 @@ async def main():
         for i, dp in enumerate(result.data):
             name = dp.dimensions.get('productions.name', 'Unknown')
             amount = dp.measures.get('ticket_line_items.amount', 0)
-            print(f"  {i+1}. {name}: ${amount:,.0f}")
+            print(f"  {i+1}. {name}: ${float(amount):,.0f}")
     
     # Demo 3: Multiple measures - "Show revenue and attendance"
     print("\n\n📊 Demo 3: Revenue and Attendance")
@@ -140,7 +140,7 @@ async def main():
             avg_ticket = amount / quantity if quantity > 0 else 0
             
             print(f"\n  {name}:")
-            print(f"    Revenue: ${amount:,.0f}")
+            print(f"    Revenue: ${float(amount):,.0f}")
             print(f"    Tickets: {quantity:,}")
             print(f"    Avg Price: ${avg_ticket:.2f}")
     
@@ -169,7 +169,7 @@ async def main():
             venue = dp.dimensions.get('venues.name', 'Unknown')
             amount = dp.measures.get('ticket_line_items.amount', 0)
             pct = (amount / total_revenue * 100) if total_revenue > 0 else 0
-            print(f"  {i+1}. {venue}: ${amount:,.0f} ({pct:.1f}%)")
+            print(f"  {i+1}. {venue}: ${float(amount):,.0f} ({pct:.1f}%)")
     
     print("\n" + "=" * 60)
     print("✅ TicketingDataCapability is working correctly!")

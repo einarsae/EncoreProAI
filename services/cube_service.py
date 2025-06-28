@@ -56,13 +56,26 @@ class CubeService:
         if time_dimensions:
             query_body["timeDimensions"] = time_dimensions
         if order:
-            query_body["order"] = order
+            # Cube.js expects order as a list of arrays like [["field", "asc"]]
+            if isinstance(order, dict):
+                # Convert dict format {"field": "asc"} to [["field", "asc"]]
+                query_body["order"] = [[k, v] for k, v in order.items()]
+            elif isinstance(order, list) and order and isinstance(order[0], dict):
+                # Convert list of dicts [{"field": "asc"}] to [["field", "asc"]]
+                query_body["order"] = [[k, v] for item in order for k, v in item.items()]
+            else:
+                query_body["order"] = order
         if limit:
             query_body["limit"] = limit
         if timezone:
             query_body["timezone"] = timezone
         
         logger.info(f"Cube.js query for tenant {tenant_id}: {measures}, {dimensions}")
+        
+        # Check if this is a compareDateRange query
+        params = {"query": json.dumps(query_body)}
+        if time_dimensions and any("compareDateRange" in td for td in time_dimensions):
+            params["queryType"] = "multi"
         
         # Use GET request with query as URL parameter (Cube Cloud format)
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -72,8 +85,10 @@ class CubeService:
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json"
                 },
-                params={"query": json.dumps(query_body)}
+                params=params
             )
+            if response.status_code != 200:
+                logger.error(f"Cube.js error response: {response.text}")
             response.raise_for_status()  # Let HTTP errors bubble up naturally
             
             result = response.json()

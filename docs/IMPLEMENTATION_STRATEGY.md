@@ -12,10 +12,13 @@
 
 ### 1. LangGraph Workflow
 ```
-START → extract_frame → resolve_entities → resolve_concepts → resolve_time → orchestrate → END
-                                                                                      ↑__________|
-                                                                                    (loop until done)
+START → extract_frames → resolve_entities → orchestrate → END
+                                                   ↑__________|
+                                                 (loop until done)
 ```
+
+- Time resolution: handled by capabilities when they need dates
+- Concept resolution: done on-demand during orchestration
 
 ### 2. Core Services (Self-Contained)
 
@@ -32,19 +35,19 @@ START → extract_frame → resolve_entities → resolve_concepts → resolve_ti
 - Returns ALL candidates for ambiguity
 
 # services/concept_resolver.py
-- Hardcoded concept mapping (for MVP)
-- Specificity scoring for SAME_AS handling
+- mem0 integration with pgvector
+- Pattern-based mapping with learning
 - Maps business terms → Cube.js measures
+- Learns from successful resolutions
 
-# services/time_resolver.py
-- LLM-based time parsing
-- Handles complex expressions
-- Returns date ranges
+# services/time_resolver.py (handled by capabilities)
+- Each capability parses time when needed
+- No separate time resolver service
 
-# services/memory_service.py
-- PostgreSQL + pgvector
-- Vector similarity search
-- Session context tracking
+# services/memory_service.py (via ConceptResolver)
+- PostgreSQL + pgvector through mem0
+- Pattern learning and recall
+- User-specific corrections
 ```
 
 ### 3. Capabilities

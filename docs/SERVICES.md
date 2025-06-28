@@ -114,28 +114,53 @@ class CubeMetaService:
 - Categorical entities: city, country, state, currency
 - Empty entities: delivery_methods, performers
 
-### 4. ConceptResolver (Future)
+### 4. ConceptResolver
 
-**Purpose**: Map user concepts to Cube.js fields
+**Purpose**: Memory-based concept resolution using mem0
 
 ```python
-# Currently using hardcoded mappings for MVP
-CONCEPT_MAP = {
-    "revenue": "ticket_line_items.amount",
-    "attendance": "ticket_line_items.quantity",
-    "sales": "ticket_line_items.amount"
-}
+class ConceptResolver:
+    """Memory-based concept resolution with mem0 integration"""
+    
+    def resolve(self, concept_text: str, user_id: str = "system") -> Dict[str, Any]:
+        """Resolve a concept to memory context using mem0 or fallback mappings"""
+        # 1. Query mem0 for related memories
+        # 2. If no memory found, use pattern-based mappings
+        # 3. Return enriched memory context with confidence scores
+        
+    def learn_from_success(self, concept_text: str, successful_mapping: str, user_id: str):
+        """Learn from successful concept mappings by storing in mem0"""
+        
+    def learn_from_correction(self, concept_text: str, corrected_mapping: str, user_id: str):
+        """Learn from user corrections by storing in mem0"""
 ```
 
-### 5. TimeResolver (Future)
+**Key Features**:
+- Memory-based learning with mem0/pgvector
+- Pattern matching for common concepts (revenue → financial_performance)
+- Learns from successful mappings
+- User-specific corrections
+- Fallback to basic mappings when mem0 unavailable
+
+**Pattern Categories**:
+- Financial: revenue, sales, income → financial_performance
+- Audience: attendance, tickets, people → audience_metrics
+- Performance: performing, "how did" → general_analysis
+- Analysis: trends, comparison, vs → trend_analysis/comparative_analysis
+- Emotional: overwhelmed, stressed → emotional_support
+
+### 5. TimeResolver
 
 **Purpose**: Parse natural language time expressions
 
+**Current Status**: Handled directly by capabilities when they need date ranges. Each capability that requires time resolution (like TicketingDataCapability) uses its LLM to parse time expressions in context.
+
 ```python
-# Will use LLM to parse expressions like:
-# "last month" → date range
-# "Q3 2023" → date range
-# "since June" → date range
+# Capabilities parse time expressions like:
+# "last month" → date range with start/end dates
+# "Q3 2023" → quarterly date range
+# "since June" → date range from June to present
+# "yesterday vs last week" → comparison date ranges
 ```
 
 ## Database Schema

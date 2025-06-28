@@ -79,41 +79,46 @@ class ChatCapability(BaseCapability):
 
 ### 2. TicketingDataCapability
 
-**Purpose**: Access ticketing data through CubeService
+**Purpose**: Generate sophisticated Cube.js queries using ALL available features
 
 ```python
 class TicketingDataCapability(BaseCapability):
-    """Self-contained Cube.js integration"""
+    """LLM-powered Cube.js query generation with full feature support"""
     
     def __init__(self):
-        self.cube_service = CubeService()  # Self-contained client
+        self.cube_service = CubeService()
+        self.cube_meta_service = CubeMetaService()
+        self.llm = ChatOpenAI(model=os.getenv("LLM_STANDARD"), temperature=0.2)
         
     def describe(self):
         return CapabilityDescription(
             name="TicketingData",
-            purpose="Retrieve and analyze ticket sales, revenue, and attendance",
+            purpose="Generate sophisticated Cube.js queries with all available features",
             inputs={
-                "analysis_request": "What to analyze (LLM interprets)",
-                "entities": "Shows, venues, etc to analyze",
-                "time_context": "Time period for analysis",
-                "comparison_type": "How to compare (if applicable)"
+                "query_request": "Natural language data request",
+                "entities": "Resolved entities with IDs",
+                "time_context": "Time period expressions",
+                "comparison_type": "Type of comparison needed"
             },
             outputs={
-                "data": "Requested metrics and dimensions",
-                "summary": "Key insights",
-                "metadata": "Query details"
+                "data": "DataPoints with measures and dimensions",
+                "query_description": "What the query accomplishes",
+                "key_findings": "Notable patterns in data",
+                "metadata": "Query details and schema info"
             }
         )
     
-    # NO HARDCODED METHODS like get_revenue(), find_underperforming()
-    # Instead, flexible analysis:
-    
-    async def analyze(self, request: AnalysisRequest) -> AnalysisResult:
-        """LLM decides what measures, dimensions, and filters to use"""
-        # Use existing exchange_models.py logic
-        # Use existing concept_definitions_minimal.yaml
-        # Preserve JWT authentication
-        # Let LLM determine analysis approach
+    async def execute(self, inputs: TicketingDataInputs) -> TicketingDataResult:
+        """Generate and execute sophisticated Cube.js queries"""
+        # 1. Load full schema context
+        # 2. Use LLM to generate query with:
+        #    - compareDateRange for time comparisons
+        #    - Nested AND/OR filters
+        #    - Time granularity (hour, day, week, month)
+        #    - Post-aggregation filters
+        #    - Drilldowns
+        #    - Entity ID-based filtering
+        # 3. Execute and format results
 ```
 
 ### 3. EventAnalysisCapability

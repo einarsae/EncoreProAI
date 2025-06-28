@@ -1,0 +1,48 @@
+delivery_methods
+description: Delivery methods represent the way in which the customer's purchase will be fulfilled, for example by email or post.
+
+events
+description: Events are individual performances of a Production, for example the 7.30pm
+      performance of Hamlet (the Production) on Wednesday 17 May 2023. Events are always part of a
+      Production, even when there is only one of them.
+
+offer_types
+description: Clients use Offers in order to sell discounted tickets. Offers have an Offer Type,
+      for example "Member's Discount", or "Summer Sale".
+
+payment_methods
+The way in which the Customer pays for their purchase, for example VISA or Cash.
+
+performers
+description: The human beings (usually) who will be appearing in an Event.
+
+price_bands:
+description: Broadly, a price band is usually linked to where in the room the seat (or the area) is located.
+      Better locations are usually in more expensive price bands. Example Price Bands are "Premium", "Standard",
+      and "Restricted View".  The price of a Ticket is influenced by the combination of the Price Band and the Ticket Type.
+
+productions
+description: Productions are shows, for example Hamlet. Productions contain Events, which are the
+      individual performances of the show. Every show is made up of both a Production and an Event, even
+      those with just a single performance.
+
+retailers
+description: The Retailer is the entity with whom the Customer transacted, for
+      example a ticket agent.
+
+sales_channels
+description: The Sales Channel indicates how a Customer made their Order.
+      For example, "Website" or "Box Office".
+
+seating_plans
+description: Seating Plans are used to indicate the layout of a particular Hall (room) within a Venue.
+
+ticket_line_items
+A wide table which brings together many of the interesting properties of both a Ticket and the
+      Transaction and Order in which it was purchased.
+
+ticket_types
+description: A Ticket Type is usually linked to person buying the ticket. For example,
+      a student or a child might pay less than the standard adult price. Example Ticket Types
+      are "Adult", "Child", "Student", "Senior Citizen". The price of a Ticket is influenced
+      by the combination of the Ticket Type and the Price Band.

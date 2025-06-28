@@ -31,6 +31,26 @@
 - EVERYTHING runs in Docker using docker-compose
 - Document all code with clear docstrings and comments where needed
 
+## Documentation Requirements
+
+### File-Level Docstrings
+Every Python file must start with a comprehensive docstring that includes:
+1. **Purpose**: What the file/module does
+2. **Key Responsibilities**: Main functions and behaviors  
+3. **Important Notes**: Any critical information for developers
+4. **Dependencies**: Key external dependencies if relevant
+
+### Method Docstrings
+All public methods must have docstrings that explain:
+- What the method does
+- Parameters and their types
+- Return value and type
+- Any exceptions that might be raised
+- Important behaviors or side effects
+
+### Class Docstrings
+Classes should have docstrings explaining their purpose and usage
+
 ## Naming Conventions
 - **NEVER use vague descriptors**: No "simple", "enhanced", "basic", "advanced", "lightweight", "heavy"
 - **Use specific names**: FrameExtractor (not SimpleFrameExtractor), CubeService (not EnhancedCubeService)

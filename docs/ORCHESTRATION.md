@@ -24,15 +24,14 @@ async def orchestrate_node(state: AgentState) -> AgentState:
     # Get complete semantic understanding
     frame = get_current_frame(state)
     
-    # Build context showing full frame understanding
+    # Build context showing frame understanding
     orchestration_context = f"""
     Query: {state.core.query}
     
     Semantic Understanding:
-    - Mentions: {[f"{m.text} ({m.kind}:{m.subtype})" for m in frame.mentions]}
-    - Relations: {[f"{r.subject} {r.relation} {r.object}" for r in frame.relations]}
-    - Emotional Context: {frame.metadata.emotional_context}
-    - Complexity: {frame.metadata.complexity}
+    - Entities: {[f"{e.text} ({e.type})" for e in frame.entities]}
+    - Concepts: {frame.concepts}
+    - Resolved Entities: {frame.resolved_entities}
     
     Completed Tasks: {state.execution.completed_tasks}
     
@@ -71,12 +70,13 @@ Traditional intent-based approach:
 4. Limited ability to handle nuance
 
 Our frame-based approach:
-1. Extract complete semantic frame (mentions + relations)
-2. Orchestrator sees full understanding
-3. Decide ONE next action based on semantic content
-4. Execute and observe results  
-5. Adapt strategy based on outcomes
-6. Repeat until done
+1. Extract semantic frame (entities and concepts)
+2. Resolve entities to database records
+3. Orchestrator sees full understanding
+4. Decide ONE next action based on semantic content
+5. Execute and observe results  
+6. Adapt strategy based on outcomes
+7. Repeat until done
 
 **No intent routing! Every query is understood on its own terms.**
 
@@ -87,7 +87,7 @@ Our frame-based approach:
 ### Loop 1: Initial State
 ```
 State: No data yet
-Frame: Contains mentions of "revenue", "top 3", "shows", "trends"
+Frame: Contains entities ["shows"], concepts ["revenue", "trends"]
 Decision: Need revenue data first
 Action: Execute TicketingDataCapability for all shows' revenue
 ```
@@ -167,7 +167,8 @@ Tasks can reference previous results:
 
 The orchestrator always sees:
 - Original query
-- Semantic frame with mentions and relations
+- Semantic frame with entities and concepts
+- Resolved entities with candidates
 - All completed tasks and their results
 - Available capabilities
 - Current execution state

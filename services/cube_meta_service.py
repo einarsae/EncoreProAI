@@ -185,6 +185,12 @@ class CubeMetaService:
         
         return sorted(measures)
     
+    async def get_meta(self) -> Dict:
+        """Get the raw meta schema"""
+        if not self._meta:
+            await self.refresh_meta()
+        return self._meta or {}
+    
     async def debug_schema(self) -> Dict:
         """Return full schema info for debugging"""
         if not self._meta:

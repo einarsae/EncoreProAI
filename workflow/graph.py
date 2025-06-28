@@ -25,7 +25,6 @@ def create_workflow():
     # Add nodes
     workflow.add_node("extract_frames", nodes.extract_frames_node)
     workflow.add_node("resolve_entities", nodes.resolve_entities_node)
-    workflow.add_node("resolve_concepts", nodes.resolve_concepts_node)
     workflow.add_node("orchestrate", nodes.orchestrate_node)
     workflow.add_node("execute_chat", nodes.execute_chat_node)
     workflow.add_node("execute_ticketing_data", nodes.execute_ticketing_data_node)
@@ -45,7 +44,6 @@ def create_workflow():
     # Add conditional edges
     workflow.add_conditional_edges("extract_frames", route_by_next_node)
     workflow.add_conditional_edges("resolve_entities", route_by_next_node)
-    workflow.add_conditional_edges("resolve_concepts", route_by_next_node)
     workflow.add_conditional_edges("orchestrate", route_by_next_node)
     workflow.add_conditional_edges("execute_chat", route_by_next_node)
     workflow.add_conditional_edges("execute_ticketing_data", route_by_next_node)

@@ -16,11 +16,11 @@
 - NOT "planner" - there is no separate planning phase
 - Creates one task at a time with built-in replanning
 
-**Frame**: A fully self-contained semantic context that captures a single, complete unit of meaning
-- Includes all necessary context for understanding
-- No unresolved references, coreferences, or external dependencies
+**Frame**: Semantic understanding of a query
+- Contains entities and concepts to resolve
+- NO times field (handled by capabilities when needed)
 - This IS the complete understanding - no separate intent classification needed
-- Implementation simplified: query text + lists of entities/times/concepts to resolve
+- Implementation: query text + lists of entities/concepts to resolve
 
 ### State Management
 
@@ -34,20 +34,20 @@
 
 ### Semantic Understanding
 
-**Extracted Items** (formerly Mentions): Things identified for resolution
+**Extracted Items**: Things identified for resolution
 - Entities: Productions, venues, locations needing database lookup
-- Times: Date expressions needing parsing
-- Concepts: Terms (including emotions) for memory context
-- Stored as simple lists in Frame (implementation detail)
+- Concepts: Terms (including emotions) for context
+- NO times extraction (handled by capabilities when needed)
+- Stored as lists in Frame
 
 **Relations**: No longer explicitly stored
 - Orchestrator infers relationships from query text
 - Simplifies extraction and maintenance
 
-**Resolution**: Process of mapping mentions to concrete values
-- Entity resolution: text → database record
-- Concept resolution: business term → technical measure
-- Time resolution: expression → date range
+**Resolution**: Process of mapping items to concrete values
+- Entity resolution: text → database record with candidates
+- Concept resolution: business term → technical measure (on-demand in orchestrator)
+- Time resolution: expression → date range (handled by capabilities)
 
 ### Execution Pattern
 
@@ -93,6 +93,6 @@
 - Handles retries and error recovery
 
 **Embedding Service**: Vector embedding generation  
-- Used by MemoryService for similarity search
-- Typically OpenAI text-embedding-ada-002
+- Used by ConceptResolver via mem0
+- OpenAI text-embedding-3-small
 - Generates 1536-dimensional vectors

@@ -13,10 +13,11 @@
   - EntityResolver handles disambiguation of entity names using trigram similarity search.
   - TimeResolver parses natural language time expressions to Cube.js date ranges.
 - **Frame-Based Understanding:**
-  - Queries are understood through semantic frames that capture intent, entities, and relationships.
+  - Queries are understood through semantic frames that capture entities and concepts.
   - The orchestrator uses these principles when constructing Cube.js queries.
 - **Comprehensive Feature Utilization:**
   - All advanced Cube.js features (compareDateRange, nested filters, drilldowns, etc.) are supported.
+  - TicketingDataCapability uses LLM to generate sophisticated queries with full schema context.
 - **Robust Error Handling:**
   - All LLM output is post-processed and validated against the schema; invalid or ambiguous output triggers clarification or fallback.
 
@@ -49,16 +50,18 @@
 
 - **ConceptResolver Service:**
   - Maps user/LLM phrases to Cube field names (measures, dimensions, filters).
-  - Uses cached concept mappings for common terms and LLM for ambiguous cases.
+  - Uses mem0 integration for pattern learning and recall.
   - Handles normalization, aliasing, and value canonicalization.
+  - Learns from successful resolutions and user corrections.
 - **EntityResolver Service:**
   - Resolves entity names to IDs using PostgreSQL trigram similarity search.
   - Provides disambiguation strings for productions with dates, revenue, and sold_last_30_days.
   - Supports cross-type entity lookup with score discounting.
-  - Handles both real entities (productions, venues, customers) and fake entities (city, country, state, currency).
-- **TimeResolver Service:**
-  - Parses natural language time expressions to Cube.js date ranges.
-  - Caches common patterns and uses LLM for complex expressions.
+  - Handles both real entities (productions, venues, customers) and categorical entities (city, country, state, currency).
+  - Returns ALL candidates for ambiguity handling by orchestrator.
+- **Time Resolution:**
+  - Handled directly by capabilities when they need date ranges.
+  - No separate TimeResolver service - each capability uses its LLM to parse time expressions in context.
 - **Tenant-Specific Config:**
   - JWT tokens include tenant_id for Cube.js data isolation.
   - All services respect tenant boundaries for data access.
@@ -387,20 +390,21 @@
   - Supports all Cube.js query features
 
 - **ConceptResolver**: Maps natural language to Cube.js fields
-  - Caches common concept mappings
-  - Uses LLM for ambiguous terms
-  - Returns mapped Cube.js field names
+  - Uses mem0/pgvector for pattern-based learning
+  - Learns from successful mappings and user corrections
+  - Returns mapped Cube.js field names with confidence scores
 
 - **EntityResolver**: Disambiguates entity references
   - Uses PostgreSQL trigram search with score transformation
   - Provides disambiguation strings with sold_last_30_days data
-  - Handles both real entities and fake entities (geographical dimensions)
+  - Handles both real entities and categorical entities (geographical dimensions)
   - Supports cross-type lookups with score discounting
+  - Returns ALL candidates for orchestrator to select
 
-- **TimeResolver**: Parses time expressions
+- **Time Resolution**: Handled by capabilities
+  - Each capability parses time expressions when needed
   - Converts "last month", "Q3 2023" to date ranges
-  - Caches common patterns
-  - Returns Cube.js compatible date formats
+  - Uses LLM in context for flexible parsing
 
 ---
 

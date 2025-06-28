@@ -3,8 +3,8 @@ Capability input/output models for type-safe capability execution
 Each capability has specific input and output models for validation
 """
 
-from typing import Dict, List, Optional, Any, Literal
-from pydantic import BaseModel, Field
+from typing import Dict, List, Optional, Any, Literal, Union
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 
 from models.state import Message
@@ -87,6 +87,8 @@ class TicketingDataResult(CapabilityResult):
     data: List[DataPoint]
     query_metadata: Dict[str, Any] = Field(default_factory=dict)
     total_rows: int = 0
+    total_columns: int = 0
+    total_measures: int = 0
     assumptions: List[str] = Field(default_factory=list)  # What was assumed during query
 
 

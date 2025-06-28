@@ -153,38 +153,7 @@ class WorkflowNodes:
             )
             frame.resolved_entities.append(resolved)
         
-        # Route to concept resolution
-        state.routing.next_node = "resolve_concepts"
-        
-        return state
-    
-    async def resolve_concepts_node(self, state: AgentState) -> AgentState:
-        """Resolve concepts in current frame"""
-        
-        frame = state.get_current_frame()
-        if not frame:
-            state.routing.next_node = "orchestrate"
-            return state
-        
-        # Resolve each concept
-        for concept_text in frame.concepts:
-            memory_context = self.concept_resolver.resolve(concept_text)
-            
-            # Add to resolved concepts
-            from models.frame import ResolvedConcept, MemoryContext
-            resolved = ResolvedConcept(
-                id=f"c{len(frame.resolved_concepts)+1}",
-                text=concept_text,
-                memory_context=MemoryContext(
-                    concept=concept_text,
-                    related_queries=memory_context.get("related_queries", []),
-                    usage_count=memory_context.get("usage_count", 0),
-                    relevance_score=memory_context.get("relevance_score", 0.5)
-                )
-            )
-            frame.resolved_concepts.append(resolved)
-        
-        # Route to orchestration
+        # Route directly to orchestration (concepts resolved on-demand)
         state.routing.next_node = "orchestrate"
         
         return state
@@ -462,20 +431,38 @@ class WorkflowNodes:
             entities = [f"{e.text} ({e.type})" for e in frame.entities]
             concepts = frame.concepts
             
-            # Show ambiguous entities
+            # Show resolved entities with IDs for filtering
+            resolved_info = []
             ambiguous = []
             for resolved in frame.resolved_entities:
-                if len(resolved.candidates) > 1:
-                    candidates_str = "\n".join([
-                        f"  - {c.name} ({c.entity_type}): {c.disambiguation}"
-                        for c in resolved.candidates[:3]
-                    ])
-                    ambiguous.append(f"{resolved.text} could be:\n{candidates_str}")
+                if resolved.candidates:
+                    # Show best candidate with ID
+                    best = resolved.candidates[0]
+                    resolved_info.append(f"{resolved.text} → {best.name} (ID: {best.id}, type: {best.entity_type})")
+                    
+                    # Track ambiguous ones
+                    if len(resolved.candidates) > 1:
+                        candidates_str = "\n".join([
+                            f"  - {c.name} (ID: {c.id}, {c.entity_type}): {c.disambiguation}"
+                            for c in resolved.candidates[:3]
+                        ])
+                        ambiguous.append(f"{resolved.text} could be:\n{candidates_str}")
+            
+            # Resolve concepts on-demand for context
+            concept_insights = []
+            for concept in concepts:
+                memory_context = self.concept_resolver.resolve(concept, state.core.user_id)
+                if memory_context.get("source") == "memory":
+                    concept_insights.append(f"  - {concept}: Previously used for {memory_context.get('concept')} analysis")
+                else:
+                    concept_insights.append(f"  - {concept}: Maps to {memory_context.get('concept')}")
             
             frame_context = f"""
 Semantic Understanding:
 - Entities: {entities}
 - Concepts: {concepts}
+{("- Resolved Entities (with IDs for filtering):" + chr(10) + "  " + (chr(10) + "  ").join(resolved_info)) if resolved_info else ""}
+{("- Concept Insights:" + chr(10) + chr(10).join(concept_insights)) if concept_insights else ""}
 {("- Ambiguous Entities:" + chr(10) + chr(10).join(ambiguous)) if ambiguous else ""}
 """
         
@@ -499,7 +486,8 @@ Available Capabilities:
 2. ticketing_data: Access comprehensive ticketing metrics
    - Request what you need: revenue, attendance, ticket sales, average prices
    - Group by: shows, venues, time periods, cities
-   - Filter by: specific resolved entities from the frame
+   - Filter by: Use entity IDs from resolved entities when available
+     Example: If "Chicago" resolves to ID "prod_123", use that ID in filters
    - The capability handles all Cube.js translation
    
 3. event_analysis: Analyze performance and identify insights
@@ -558,7 +546,11 @@ Capability relationships:
 - ticketing_data: Fetches raw metrics. IMPORTANT - use exact field names:
   * Measures: ticket_line_items.amount, ticket_line_items.quantity
   * Dimensions: productions.name, ticket_line_items.venue_id, ticket_line_items.city, ticket_line_items.created_at_local
-  * Filters: Use resolved entity names/IDs from frame resolution
+  * Filters: PREFER ID-based filtering when entities are resolved:
+    - For productions: use {"member": "productions.id", "operator": "equals", "values": ["entity_id"]}
+    - For venues: use {"member": "ticket_line_items.venue_id", "operator": "equals", "values": ["entity_id"]}
+    - For cities: use {"member": "ticket_line_items.city", "operator": "equals", "values": ["CITY_NAME"]}
+    - Only fall back to name-based filtering if no ID is available
 - event_analysis: Usually needs ticketing_data results first (can reference previous task results)
 
 When ambiguous entities exist, you can:
