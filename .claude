@@ -1,5 +1,10 @@
 # Encore AI Development Rules
 
+## Git Commit Rules
+- **NEVER commit changes unless the user explicitly asks you to**
+- Wait for explicit commit requests like "commit", "push", "create a commit"
+- It's fine to stage changes (git add) but DO NOT commit without permission
+
 ## Core Principles
 - **MINIMAL CODE**: Write the least code possible to solve the problem
 - **FAIL FAST**: No defensive coding unless absolutely warranted

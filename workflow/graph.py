@@ -86,26 +86,34 @@ async def process_query(
     # Create and run workflow
     workflow = create_workflow()
     
-    # Run with streaming to see progress
-    final_state = None
-    async for state in workflow.astream(initial_state):
-        final_state = state
-        
-        # Could emit progress events here
-        if debug:
-            print(f"Node: {state.get('core', {}).get('current_node', 'unknown')}")
+    # Run with streaming to see progress (optional)
+    if debug:
+        async for chunk in workflow.astream(initial_state, {"recursion_limit": 15}):
+            node_name = list(chunk.keys())[0] if chunk else "unknown"
+            print(f"Processing: {node_name}")
     
-    # Extract response
-    if final_state and hasattr(final_state, 'core'):
-        return {
-            "success": final_state.core.status == "complete",
-            "response": final_state.core.final_response,
-            "messages": [msg.model_dump() for msg in final_state.core.messages],
-            "debug": final_state.debug.model_dump() if final_state.debug else None
-        }
-    else:
+    # Get final state using ainvoke
+    try:
+        final_state_dict = await workflow.ainvoke(initial_state, {"recursion_limit": 15})
+        
+        # Extract state components
+        if isinstance(final_state_dict, dict) and 'core' in final_state_dict:
+            core = final_state_dict['core']
+            return {
+                "success": core.status == "complete",
+                "response": core.final_response,
+                "messages": [msg.model_dump() for msg in core.messages] if hasattr(core, 'messages') else [],
+                "debug": final_state_dict.get('debug').model_dump() if final_state_dict.get('debug') else None
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Unexpected workflow result format",
+                "response": None
+            }
+    except Exception as e:
         return {
             "success": False,
-            "error": "Workflow failed to complete",
+            "error": str(e),
             "response": None
         }

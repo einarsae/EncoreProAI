@@ -134,22 +134,32 @@ class ConceptResolver:
                     
                     # Extract the best matching concept
                     best_memory = related_memories[0]
-                    mapped_concept = self._extract_concept_from_memory(best_memory)
+                    if isinstance(best_memory, str):
+                        # If mem0 returns string, use basic mapping
+                        logger.warning(f"mem0 returned string instead of dict: {best_memory}")
+                        mapped_concept = self.basic_mappings.get(concept_lower, concept_text)
+                    else:
+                        mapped_concept = self._extract_concept_from_memory(best_memory)
                     
                     # Get related queries from memory
                     related_queries = self._get_related_queries(concept_text, user_id)
                     
                     logger.info(f"Found memory for concept '{concept_text}' -> '{mapped_concept}'")
                     
-                    return {
+                    # Build response based on what we actually have
+                    response = {
                         "concept": mapped_concept,
                         "original_text": concept_text,
                         "related_queries": related_queries,
                         "usage_count": len(related_memories),
-                        "relevance_score": best_memory.get('score', 0.8),
-                        "confidence": 0.9,
                         "source": "memory"
                     }
+                    
+                    # Only add score if we actually have one
+                    if isinstance(best_memory, dict) and 'score' in best_memory:
+                        response["relevance_score"] = best_memory['score']
+                        
+                    return response
                     
             except Exception as e:
                 logger.warning(f"Failed to query mem0 for concept '{concept_text}': {e}")

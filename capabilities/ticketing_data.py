@@ -18,6 +18,7 @@ import os
 from typing import Dict, Any, List, Optional
 import logging
 import json
+from datetime import datetime
 import asyncio
 
 from langchain_openai import ChatOpenAI
@@ -78,7 +79,7 @@ class TicketingDataCapability(BaseCapability):
                 "measures": "What to measure (revenue, attendance, prices ['min', 'max', 'avg'], count, show dates, sales dates)",
                 "dimensions": "How to group data (by show, venue, time, retailers/outlets, ticket types, price, location, sales channels, etc.)",
                 "filters": "What to filter by (entities, time ranges ['inDateRange', 'beforeDate', 'afterDate'], sales channels, ticket types, price bands, cities, postcode, customer, event)",
-                "time_context": "Time period for data (e.g., 'last month', 'Q1 2024', 'this year')",
+                "time_context": "Time period for data (e.g., 'November 2024', 'Q1 2024', '2024')",
                 "time_comparison_type": "Optional: year_over_year, month_over_month, quarter_over_quarter, week_over_week",
                 "time_granularity": "Optional: day, week, month, quarter, year",
                 "entities": "Resolved entities with IDs from orchestrator",
@@ -94,7 +95,7 @@ class TicketingDataCapability(BaseCapability):
                 "total_measures": "Number of measures returned"
             },
             examples=[
-                "Revenue trends for Chicago over the last 3 months",
+                "Revenue trends for Chicago from October to December 2024",
                 "Attendance for Gatsby and Wicked this year",  
                 "Top 5 venues by average ticket price",
                 "Q1 and Q2 revenue data",
@@ -216,6 +217,7 @@ class TicketingDataCapability(BaseCapability):
         # Avoid f-string to prevent issues with JSON examples containing braces
         schema_json = json.dumps(context['schema'], indent=2)
         operators_json = json.dumps(context['all_operators'])
+        current_date = datetime.now().strftime("%Y-%m-%d")
         
         system_prompt = """You are a Cube.js query generator for a live entertainment ticketing system. Generate queries that fetch the requested data efficiently.
 
@@ -230,7 +232,7 @@ QUERY STRUCTURE:
   "dimensions": ["cube.dimension"],  // How to group
   "timeDimensions": [{              // Time-based grouping
     "dimension": "cube.time_field",
-    "dateRange": ["2024-01-01", "2024-12-31"] or "last month",
+    "dateRange": ["2024-01-01", "2024-12-31"],
     "granularity": "day|week|month|quarter|year"  // REQUIRED if timeDimensions is used!
   }],
   // OR for time filtering without grouping:
@@ -276,6 +278,9 @@ RULES:
    - If grouping by time, ALWAYS include valid granularity
    - If just filtering by time, OMIT the granularity field entirely
    - NEVER use "granularity": null
+8. ALWAYS convert relative dates to explicit YYYY-MM-DD format
+   - Example: "last month" → ["2024-11-01", "2024-11-30"]
+   - Today is: """ + current_date + """
 
 MEMORY CONSIDERATIONS:
 Some dimensions have high cardinality (many unique values):
@@ -329,7 +334,7 @@ EXAMPLES:
   "measures": ["ticket_line_items.amount"],
   "timeDimensions": [{
     "dimension": "ticket_line_items.created_at_local",
-    "dateRange": "last 3 months",
+    "dateRange": ["2024-10-01", "2024-12-31"],
     "granularity": "month"  // REQUIRED for time grouping
   }],
   "order": {"ticket_line_items.created_at_local": "asc"}
@@ -404,6 +409,7 @@ If a specific limit is provided above, use that exact number."""
         """Generate query execution plan using LLM"""
         
         schema_json = json.dumps(context['schema'], indent=2)
+        current_date = datetime.now().strftime("%Y-%m-%d")
         
         system_prompt = f"""You are a Cube.js query planner. Determine if a request needs one query or multiple queries.
 
@@ -429,7 +435,7 @@ QUERY STRUCTURE:
   "dimensions": ["cube.dimension"],
   "timeDimensions": [{{
     "dimension": "cube.time_field",
-    "dateRange": ["2024-01-01", "2024-12-31"] or "last month",
+    "dateRange": ["2024-01-01", "2024-12-31"],
     "granularity": "day|week|month|quarter|year"  // Include ONLY if grouping by time
   }}],
   "filters": [{{
@@ -447,6 +453,9 @@ IMPORTANT RULES FOR TIME DIMENSIONS:
 - If grouping by time: Include "granularity": "day|week|month|quarter|year"
 - If just filtering by time: OMIT the granularity field entirely
 - NEVER use "granularity": null - this causes errors!
+- ALWAYS convert relative dates to explicit YYYY-MM-DD format
+  Example: "last month" → ["2024-11-01", "2024-11-30"]
+  Today is: """ + current_date + """
 
 MEMORY CONSIDERATIONS (same as query generation):
 - ticket_line_items.customer_id: use limits
