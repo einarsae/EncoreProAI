@@ -1,8 +1,43 @@
 # Claude Recap - EncoreProAI Implementation
 
-## Current Status: Enhanced TicketingDataCapability with All Cube.js Features
+## Documentation Guidelines (IMPORTANT)
 
-### What We've Built So Far
+### Documents to Maintain and Reference
+1. **docs/CURRENT_STATE.md** - Single source of truth for implementation status
+2. **docs/API_REFERENCE.md** - Technical reference for all components  
+3. **docs/TODO.md** - Current priorities and next steps
+4. **docs/KNOWN_ISSUES.md** - Active bugs and workarounds
+5. **QUICK_REFERENCE.md** - Commands, setup, and examples
+
+### DO NOT Reference or Create
+- ❌ **docs/archive/** - Contains outdated/redundant documentation
+- ❌ New documentation files - Update existing ones instead
+- ❌ Temporary analysis files - Keep findings in existing docs
+
+### Documentation Best Practices
+- **No redundancy** - Each fact should exist in ONE place only
+- **Update, don't create** - Modify existing docs rather than making new ones
+- **Reference, don't repeat** - Link to other docs instead of duplicating content
+
+## Current Status: TicketingDataCapability 100% Complete
+
+## Latest Updates (December 2024)
+
+### TicketingDataCapability Improvements
+- ✅ **Fixed multi-fetch bug**: Updated prompts to handle granularity correctly
+- ✅ **All 9/9 features working**: Multi-fetch, pagination, hierarchical data, etc.
+- ✅ **Code cleanup**: Reduced from 853 to 674 lines (21% reduction)
+  - Removed unused CubeQuery class
+  - Removed unused methods (_describe_query, _extract_key_findings)
+  - Moved test function to separate file
+
+### Documentation Consolidation
+- Reduced from 16 files to 5 core documentation files
+- Archived 12 redundant files to docs/archive/
+- Created consolidated API_REFERENCE.md
+- Cleaned up test files in root directory
+
+## What We've Built So Far
 
 #### Day 1: Foundation (✅ COMPLETED)
 - PostgreSQL with pgvector and pg_trgm extensions
@@ -136,21 +171,34 @@ Docker-compose maps these:
 encoreproai/
 ├── capabilities/
 │   ├── base.py                    # BaseCapability interface
-│   ├── chat.py                    # ChatCapability (emotional support)
-│   └── ticketing_data.py          # TicketingDataCapability (data fetcher)
+│   ├── chat.py                    # ChatCapability (emotional support) - NOT INTEGRATED
+│   ├── event_analysis.py          # EventAnalysisCapability - NEEDS ID FILTERING FIX
+│   └── ticketing_data.py          # TicketingDataCapability (674 lines) - 100% WORKING
 ├── models/
 │   ├── frame.py                   # Frame, EntityToResolve, ResolvedEntity
 │   ├── state.py                   # AgentState for orchestration
 │   └── capabilities.py            # Input/Output models for capabilities
 ├── services/
 │   ├── cube_service.py            # Cube.js API client with JWT
+│   ├── cube_meta_service.py       # Schema introspection
 │   ├── entity_resolver.py         # PostgreSQL trigram search
+│   ├── concept_resolver.py        # Pattern-based with mem0
 │   └── frame_extractor.py         # LLM-based frame extraction
 ├── workflow/
 │   ├── graph.py                   # LangGraph workflow definition
-│   └── nodes.py                   # Workflow nodes (extract, resolve, orchestrate, execute)
-└── tests/
-    └── (comprehensive test suite)
+│   └── nodes.py                   # Workflow nodes
+├── scripts/
+│   ├── debug/                     # Debug scripts
+│   ├── verification/              # Verification scripts
+│   └── populate_entities.py       # Entity population
+├── tests/
+│   └── ticketing/                 # All ticketing tests (9/9 passing)
+└── docs/
+    ├── API_REFERENCE.md           # Consolidated technical reference
+    ├── CURRENT_STATE.md           # Implementation status (SOURCE OF TRUTH)
+    ├── TODO.md                    # Active priorities
+    ├── KNOWN_ISSUES.md            # Bugs and workarounds
+    └── archive/                   # 12 old/redundant docs
 ```
 
 ### What's Working Now
@@ -173,9 +221,30 @@ encoreproai/
    - Supports compareDateRange, nested filters, drilldowns
    - Uses exact entity IDs for filtering
 
+### Prompt Management Best Practices
+
+**Current**: Long prompts embedded in code (150+ lines)
+**Recommended**: Extract to template files for complex prompts
+
+```python
+# Instead of embedded strings:
+system_prompt = """Very long prompt..."""
+
+# Use template files:
+def load_prompt(name: str) -> str:
+    with open(f"prompts/{name}.md", "r") as f:
+        return f.read()
+```
+
+**Benefits**:
+- Easier to maintain and test prompts
+- Can version control prompt changes
+- Cleaner code files
+- Enables A/B testing
+
 ### Next Steps (TODO)
 
-#### 1. Implement EventAnalysisCapability with ID-Based Filtering
+#### 1. Complete EventAnalysisCapability with ID-Based Filtering
 ```python
 class EventAnalysisCapability(BaseCapability):
     """
@@ -241,12 +310,19 @@ docker-compose run --rm test python verify_ticketing_setup.py
 ```
 
 ### Git Status
-- Branch: main
+- Branch: ticketingdata
 - Main branch: main
-- Recent commit: "🚀 COMPLETE: LangGraph Orchestrator Production Ready"
+- Recent changes: Fixed multi-fetch bug, cleaned up code, consolidated docs
 
 ---
 
 ## Ready to Continue!
 
-When you return, the immediate next step is implementing EventAnalysisCapability. The TicketingDataCapability is complete and tested, providing the raw data foundation that EventAnalysis will interpret intelligently.
+### Immediate Priority
+Complete EventAnalysisCapability with proper ID-based filtering. The TicketingDataCapability is now 100% complete (all 9/9 features working) and provides the data foundation.
+
+### Remember
+- Check docs/CURRENT_STATE.md for latest status
+- Update existing docs, don't create new ones
+- Reference docs/archive/ content is outdated
+- All tests should use Docker: `docker-compose run --rm test`

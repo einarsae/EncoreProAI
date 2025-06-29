@@ -2,20 +2,37 @@
 
 ## Overview
 
-This is an LLM-first architecture with adaptive planning. We extract only what needs resolution, letting the intelligent orchestrator handle the complexity.
+This is an LLM-first architecture with adaptive planning. We extract semantic frames for understanding, resolve entities, and let an intelligent orchestrator decide next steps.
 
-## LangGraph-Based Orchestration
+## Current Implementation Status
 
-The system uses LangGraph for proven workflow orchestration with capability integration:
+### ✅ Implemented
+- Frame extraction (simplified structure)
+- Entity resolution with ambiguity preservation
+- TicketingDataCapability with advanced Cube.js features
+- Core services (CubeService, EntityResolver, ConceptResolver)
+- Pydantic v2 models for state management
 
-1. **Frame Extraction**: Extract only entities and concepts that need resolution
+### 🚧 Partially Implemented
+- LangGraph workflow structure (exists but not fully integrated)
+- Orchestration node (implemented but not tested with real data)
+- ChatCapability (code exists, needs integration)
+- EventAnalysisCapability (needs ID-based filtering fix)
+
+### ❌ Not Implemented
+- Full orchestration loop with all capabilities
+- Multi-frame query handling
+- Complete memory learning system
+
+## Intended Architecture
+
+**Note**: The following describes the target architecture. See [CURRENT_STATE.md](./CURRENT_STATE.md) for what's actually working.
+
+1. **Frame Extraction**: Extract entities and concepts that need resolution
 2. **Entity Resolution**: Resolve entities to database records (preserving ambiguity)
 3. **Orchestration**: LLM creates ONE task at a time with built-in replanning
-   - Concept resolution happens on-demand here during context building
 4. **Execution**: Run the single capability and return results
 5. **Loop**: Orchestrator sees results and adapts
-
-**Key Insight**: Single-task execution with continuous replanning - the LLM sees results and adapts the plan dynamically!
 
 LangGraph provides:
 - ✅ Proven state management (you already have this working)
@@ -44,9 +61,14 @@ START → extract_frames → resolve_entities → orchestrate → execute_capabi
 - Concept resolution: done on-demand during orchestrator context building
 - Execution nodes: separate nodes for each capability (chat, ticketing_data, event_analysis)
 
-### 2. Simplified Frame Extraction
+### 2. Frame Extraction (Simplified)
 
-#### ExtractFrameNode
+**Current Implementation**:
+- Extracts entities and concepts from user queries
+- No complex mentions/relations structure
+- Passes to entity resolver for disambiguation
+
+**Target Implementation**:
 ```python
 async def extract_frame_node(state: AgentState) -> AgentState:
     """Extract only what needs resolution - entities and concepts"""

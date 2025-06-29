@@ -18,6 +18,7 @@ import os
 from typing import Dict, Any, List, Optional
 import logging
 import json
+import asyncio
 
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
@@ -34,14 +35,12 @@ from services.cube_meta_service import CubeMetaService
 logger = logging.getLogger(__name__)
 
 
-class CubeQuery(BaseModel):
-    """Structured output for generated Cube.js query"""
-    measures: List[str]
-    dimensions: List[str] = []
-    filters: List[Dict[str, Any]] = []
-    timeDimensions: Optional[List[Dict[str, Any]]] = None
-    order: List[Dict[str, str]] = []
-    limit: Optional[int] = None
+class QueryPlan(BaseModel):
+    """Query execution plan from LLM"""
+    strategy: str  # "single" or "multi"
+    reasoning: str  # Why this strategy was chosen
+    queries: List[Dict[str, Any]]  # One or more Cube.js queries
+    metadata: Dict[str, Any] = {}  # Additional context for result combination
 
 
 class TicketingDataCapability(BaseCapability):
@@ -73,12 +72,12 @@ class TicketingDataCapability(BaseCapability):
         """
         return CapabilityDescription(
             name="ticketing_data",
-            purpose="Fetch raw ticketing transaction data with advanced Cube.js features. Can retrieve data from multiple time periods (2 or more) in a single query for comparison. Supports trends, complex filtering, and all Cube.js features. No interpretation or analysis - just data retrieval. For insights and recommendations, use event_analysis capability.",
+            purpose="Fetch raw ticketing transaction data with advanced Cube.js features. Supports intelligent multi-fetch for per-event queries and non-overlapping time periods. Handles production (show) and event (performance) data. Features include pagination (offset/total) and all standard aggregations. No interpretation or analysis - just data retrieval. For insights and recommendations, use event_analysis capability.",
             inputs={
                 "query_request": "Natural language description of what data you need",
                 "measures": "What to measure (revenue, attendance, prices ['min', 'max', 'avg'], count, show dates, sales dates)",
                 "dimensions": "How to group data (by show, venue, time, retailers/outlets, ticket types, price, location, sales channels, etc.)",
-                "filters": "What to filter by (specific entities, time ranges, sales channels, ticket types, price bands, cities, postcode, customer, event, sales channels)",
+                "filters": "What to filter by (entities, time ranges ['inDateRange', 'beforeDate', 'afterDate'], sales channels, ticket types, price bands, cities, postcode, customer, event)",
                 "time_context": "Time period for data (e.g., 'last month', 'Q1 2024', 'this year')",
                 "time_comparison_type": "Optional: year_over_year, month_over_month, quarter_over_quarter, week_over_week",
                 "time_granularity": "Optional: day, week, month, quarter, year",
@@ -95,13 +94,14 @@ class TicketingDataCapability(BaseCapability):
                 "total_measures": "Number of measures returned"
             },
             examples=[
-                "Get revenue trends for Chicago over the last 3 months",
-                "Compare attendance between Gatsby and Wicked this year",
-                "Show top 5 venues by average ticket price",
-                "Compare Q1 vs Q2 vs Q3 vs Q4 revenue this year",
-                "Show year-over-year growth for all productions",
-                "Compare this month's sales to same month last year",
-                "Compare revenue across all 4 quarters of 2024"
+                "Revenue trends for Chicago over the last 3 months",
+                "Attendance for Gatsby and Wicked this year",  
+                "Top 5 venues by average ticket price",
+                "Q1 and Q2 revenue data",
+                "Sales per event by day for Chicago and Gatsby",
+                "Monthly revenue for all productions this year",
+                "Page 3 of production revenues (50 per page)",
+                "Production revenue with total count for pagination"
             ]
         )
     
@@ -110,96 +110,44 @@ class TicketingDataCapability(BaseCapability):
         
         This method:
         1. Builds context from real Cube.js schema
-        2. Uses LLM to generate sophisticated queries
-        3. Executes the query and returns raw data
-        4. Does NOT interpret or analyze results
+        2. Uses LLM to generate query plan (single or multi-fetch)
+        3. Executes queries based on plan
+        4. Returns raw data with clear metadata
+        5. Does NOT interpret or analyze results
         """
         
-        logger.info(f"Processing data request: {inputs.measures}")
+        logger.info(f"Processing data request: {getattr(inputs, 'query_request', 'No description')}")
         
         try:
             # Build comprehensive context for query generation
             context = await self._build_query_context(inputs)
             
-            # Generate sophisticated Cube.js query using LLM with full feature set
-            query = await self._generate_advanced_query(inputs, context)
+            # Generate query plan using LLM - it decides single vs multi-fetch
+            query_plan = await self._generate_query_plan(inputs, context)
             
-            if not query:
+            if not query_plan or not query_plan.queries:
                 return TicketingDataResult(
                     success=False,
                     data=[],
                     total_rows=0,
                     total_columns=0,
                     total_measures=0,
-                    assumptions=["Could not generate a valid query for this request"],
-                    query_metadata={"error": "Query generation failed"}
+                    assumptions=["Could not generate a valid query plan"],
+                    query_metadata={"error": "Query planning failed"}
                 )
             
-            # Log the generated query for debugging
-            logger.info(f"Generated query: {json.dumps(query, indent=2)}")
+            logger.info(f"Query plan: {query_plan.strategy} strategy with {len(query_plan.queries)} queries")
             
-            # Log the actual query being sent
-            logger.info(f"Sending query to Cube.js: {json.dumps(query, indent=2)}")
-            
-            # Execute the query - fail fast, no retries
-            result = await self.cube_service.query(
-                measures=query.get("measures", []),
-                dimensions=query.get("dimensions", []),
-                filters=query.get("filters", []),
-                time_dimensions=query.get("timeDimensions"),
-                order=query.get("order", []),
-                limit=query.get("limit", inputs.limit),
-                tenant_id=inputs.tenant_id
-            )
-            
-            # Transform Cube.js response to our DataPoint format
-            data_points = []
-            for row in result.get('data', []):
-                # Separate dimensions and measures
-                dimensions = {}
-                measures = {}
-                
-                for key, value in row.items():
-                    # Check if this exact key is in the measures list
-                    if key in query.get("measures", []):
-                        measures[key] = value
-                    else:
-                        dimensions[key] = value
-                
-                data_points.append(DataPoint(
-                    dimensions=dimensions,
-                    measures=measures
-                ))
-            
-            # Build query description and key findings
-            query_description = await self._describe_query(query, len(data_points))
-            key_findings = self._extract_key_findings(data_points, query)
-            
-            # Calculate total columns and measures
-            total_columns = 0
-            total_measures = 0
-            if data_points:
-                first_point = data_points[0]
-                total_columns = len(first_point.dimensions) + len(first_point.measures)
-                total_measures = len(first_point.measures)
-            
-            # Add metadata about the query
-            query_metadata = {
-                "cube_response": {
-                    "annotation": result.get('annotation', {}),
-                    "query": query
-                }
-            }
-            
-            return TicketingDataResult(
-                success=True,
-                data=data_points,
-                query_metadata=query_metadata,
-                total_rows=len(data_points),
-                total_columns=total_columns,
-                total_measures=total_measures,
-                assumptions=[query_description] + key_findings
-            )
+            # Execute based on strategy
+            if query_plan.strategy == "single":
+                # Single query path
+                query = query_plan.queries[0]
+                result = await self._execute_single_query(query, inputs.tenant_id)
+                return self._format_single_result(result, query, query_plan)
+            else:
+                # Multi-fetch path
+                results = await self._execute_multi_fetch(query_plan, inputs.tenant_id)
+                return self._format_multi_result(results, query_plan)
             
         except Exception as e:
             logger.error(f"Error fetching ticketing data: {e}", exc_info=True)
@@ -258,11 +206,6 @@ class TicketingDataCapability(BaseCapability):
                 "gt", "gte", "lt", "lte",
                 "set", "notSet",
                 "inDateRange", "notInDateRange", "beforeDate", "afterDate"
-            ],
-            "advanced_features": [
-                "compareDateRange", "drilldown", "total",
-                "nested AND/OR filters", "post-aggregation filters",
-                "multi-cube joins", "ungrouped queries"
             ]
         }
     
@@ -274,118 +217,141 @@ class TicketingDataCapability(BaseCapability):
         schema_json = json.dumps(context['schema'], indent=2)
         operators_json = json.dumps(context['all_operators'])
         
-        system_prompt = """You are an expert at generating sophisticated Cube.js queries.
+        system_prompt = """You are a Cube.js query generator for a live entertainment ticketing system. Generate queries that fetch the requested data efficiently.
 
-AVAILABLE SCHEMA:
+CONTEXT: This is a ticketing analytics system for theaters and live entertainment venues. The data includes ticket sales, productions (shows), events (performances), venues, and customer transactions.
+
+SCHEMA:
 """ + schema_json + """
 
-CRITICAL RULES:
-1. Use EXACT field names from the schema above
-2. NEVER use shortcuts - always use full qualified names (e.g., "ticket_line_items.amount" not "revenue")
-3. Only use dimensions and measures that exist in the schema
-4. Match the exact case and spelling from the schema
+QUERY STRUCTURE:
+{
+  "measures": ["cube.measure"],      // What to calculate
+  "dimensions": ["cube.dimension"],  // How to group
+  "timeDimensions": [{              // Time-based grouping
+    "dimension": "cube.time_field",
+    "dateRange": ["2024-01-01", "2024-12-31"] or "last month",
+    "granularity": "day|week|month|quarter|year"  // REQUIRED if timeDimensions is used!
+  }],
+  // OR for time filtering without grouping:
+  "timeDimensions": [{
+    "dimension": "cube.time_field",
+    "dateRange": ["2024-01-01", "2024-12-31"]
+    // NO granularity field - omit it entirely for filtering only
+  }],
+  "filters": [{                     // Data filtering
+    "member": "cube.field",         // Always use "member" for filters
+    "operator": "equals|contains|gt|lt|inDateRange|...",
+    "values": ["value1", "value2"]
+  }],
+  // For complex filters, use AND/OR logic:
+  "filters": [
+    {"operator": "and", "filters": [
+      {"member": "productions.name", "operator": "equals", "values": ["Gatsby"]},
+      {"member": "ticket_line_items.amount", "operator": "gt", "values": [100]}
+    ]}
+  ],
+  "order": {"cube.field": "asc|desc"},  // Sort by single field
+  "limit": 100,                         // Max rows to return
+  "offset": 0,                          // Skip rows (for pagination)
+  "total": true                         // Return total count
+}
+
+ADDITIONAL FEATURES:
+- offset: Skip N rows for pagination (e.g., offset: 100)
+- total: Get total count of results (useful for pagination UI)
+- Hierarchical data: Use multiple dimensions (e.g., ["retailers.name", "sales_channels.name"])
+
+RULES:
+1. Use exact field names from schema (e.g., "ticket_line_items.amount")
+2. When user specifies a limit, use that exact number
+3. When adding any limit, also add order by the primary measure descending
+4. Use "member" (not "dimension") as the key in filter objects
+5. Empty order should be {} not []
+6. Common translations:
+   - "revenue" or "sales" → ticket_line_items.amount
+   - "attendance" or "tickets" → ticket_line_items.quantity
+   - "by show" or "by production" → productions.name
+7. For timeDimensions:
+   - If grouping by time, ALWAYS include valid granularity
+   - If just filtering by time, OMIT the granularity field entirely
+   - NEVER use "granularity": null
+
+MEMORY CONSIDERATIONS:
+Some dimensions have high cardinality (many unique values):
+- ticket_line_items.customer_id: millions of values
+- ticket_line_items.city/postcode: 50K+ values  
+- events.id with daily data: can be 50K+ rows
+
+When using these:
+- Add reasonable limits (100-1000 rows)
+- Or use coarser time granularity (weekly/monthly instead of daily)
+- Or filter to specific values first
 
 AVAILABLE OPERATORS:
 """ + operators_json + """
 
-ADVANCED FEATURES YOU CAN USE:
-1. compareDateRange - for YOY, MOM comparisons
-2. Nested AND/OR filters - for complex logic
-3. Post-aggregation filters - filter on calculated measures
-4. Time granularity - day, week, month, quarter, year
-5. Multiple orderings - sort by multiple fields
-6. Drilldown - for hierarchical analysis
-7. Total - get total count with results
+EXAMPLES:
 
-QUERY PATTERNS:
-- Trends: Use timeDimensions with granularity
-- Comparisons: Use compareDateRange or filters
-- Top N: Use order + limit
-- Distribution: Use dimensions without limit
-- Cohort analysis: Use nested filters
-
-QUERY FORMAT:
-1. Use array format for filters (not object format)
-2. Include "order": [] even if empty  
-3. For time ranges, use inDateRange operator
-4. order should be an object like {"field": "asc"} for simple ordering
-
-EXAMPLE QUERIES:
-
-Basic aggregation:
+1. Paginated results:
 {
   "measures": ["ticket_line_items.amount"],
   "dimensions": ["productions.name"],
-  "filters": [
-    {
-      "member": "productions.name",
-      "operator": "contains",
-      "values": ["GATSBY"]
-    }
-  ],
-  "order": []
-}
-
-Top N with ordering:
-{
-  "measures": ["ticket_line_items.amount"],
-  "dimensions": ["productions.name"],
-  "filters": [],
   "order": {"ticket_line_items.amount": "desc"},
-  "limit": 5
+  "limit": 50,
+  "offset": 100,
+  "total": true
 }
 
-Time series with granularity:
+2. Hierarchical exploration (multiple dimensions):
 {
   "measures": ["ticket_line_items.amount"],
-  "timeDimensions": [{
-    "dimension": "ticket_line_items.created_at_local",
-    "granularity": "month",
-    "dateRange": ["2024-01-01", "2024-12-31"]
-  }],
-  "order": []
+  "dimensions": ["retailers.name", "sales_channels.name", "productions.name"],
+  "order": {"ticket_line_items.amount": "desc"},
+  "limit": 50
 }
 
-Comparing multiple time periods (compareDateRange):
+3. Time filtering WITHOUT grouping (no granularity):
 {
   "measures": ["ticket_line_items.amount"],
   "dimensions": ["productions.name"],
   "timeDimensions": [{
     "dimension": "ticket_line_items.created_at_local",
-    "compareDateRange": [
-      ["2024-01-01", "2024-03-31"],
-      ["2024-04-01", "2024-06-30"],
-      ["2024-07-01", "2024-09-30"],
-      ["2024-10-01", "2024-12-31"]
-    ]
+    "dateRange": ["2024-01-01", "2024-03-31"]
+    // NO granularity field here!
   }],
-  "order": []
+  "order": {"ticket_line_items.amount": "desc"},
+  "limit": 10
 }
 
-IMPORTANT: When user asks to compare multiple time periods (Q1 vs Q2, this year vs last year, etc), use compareDateRange instead of dateRange. compareDateRange supports 2 or more date ranges.
+4. Time grouping WITH granularity:
+{
+  "measures": ["ticket_line_items.amount"],
+  "timeDimensions": [{
+    "dimension": "ticket_line_items.created_at_local",
+    "dateRange": "last 3 months",
+    "granularity": "month"  // REQUIRED for time grouping
+  }],
+  "order": {"ticket_line_items.created_at_local": "asc"}
+}
 
-Respond with ONLY valid JSON."""
+NOTE: Use multiple dimensions for hierarchical data. NEVER use "granularity": null.
 
-        user_prompt = f"""Generate a Cube.js query for this request:
+Respond with ONLY the JSON query."""
 
-Query request: {getattr(inputs, 'query_request', 'Not specified')}
+        user_prompt = f"""Generate a Cube.js query for:
+
+Request: {getattr(inputs, 'query_request', 'Not specified')}
 Time context: {getattr(inputs, 'time_context', 'Not specified')}
-Time comparison type: {getattr(inputs, 'time_comparison_type', 'Not specified')}
 
-Measures requested: {inputs.measures}
-Dimensions requested: {inputs.dimensions if inputs.dimensions else 'none'}
-Filters: {[f.model_dump() for f in inputs.filters] if inputs.filters else 'none'}
-Order: {inputs.order if inputs.order else 'auto-determine based on query'}
-Limit: {inputs.limit if inputs.limit else 'auto-determine based on query type'}
+Provided inputs:
+- Measures: {inputs.measures}
+- Dimensions: {inputs.dimensions if inputs.dimensions else 'none'}
+- Filters: {[f.model_dump() for f in inputs.filters] if inputs.filters else 'none'}
+- Order: {inputs.order if inputs.order else 'none'}
+- Limit: {inputs.limit if inputs.limit else 'none'}
 
-Analyze the request and determine the best query approach:
-- If comparing time periods, use compareDateRange
-- If showing trends over time, use timeDimensions with appropriate granularity
-- If finding top/bottom performers, use order and limit
-- If complex filtering is needed, use nested AND/OR filters
-- If filtering on calculated values, use post-aggregation filters
-
-Generate the most sophisticated query that answers this request using the exact field names from the schema."""
+If a specific limit is provided above, use that exact number."""
 
         # Log the user prompt for debugging
         logger.info(f"User prompt: {user_prompt}")
@@ -402,166 +368,317 @@ Generate the most sophisticated query that answers this request using the exact 
             query = json.loads(json_match.group())
             # Ensure order is always present
             if "order" not in query:
-                query["order"] = []
+                query["order"] = {}
+            
+            # If there's a limit but no order, add default ordering by first measure
+            if query.get("limit") and not query.get("order"):
+                measures = query.get("measures", [])
+                if measures:
+                    query["order"] = {measures[0]: "desc"}
+                    logger.info(f"Added default ordering by {measures[0]} desc due to limit")
+            
             return query
         else:
             raise ValueError("Failed to parse LLM response as JSON")
     
-    async def _describe_query(self, query: Dict[str, Any], row_count: int) -> str:
-        """Generate a description of what the query did"""
-        parts = []
-        
-        if query.get("measures"):
-            parts.append(f"Retrieved {', '.join(query['measures'])}")
-        
-        if query.get("dimensions"):
-            parts.append(f"grouped by {', '.join(query['dimensions'])}")
+    def _transform_cube_data_to_datapoints(self, cube_data: List[Dict], query: Dict) -> List[DataPoint]:
+        """Transform Cube.js response rows to DataPoints"""
+        data_points = []
+        for row in cube_data:
+            dimensions = {}
+            measures = {}
             
-        if query.get("filters"):
-            parts.append(f"with {len(query['filters'])} filter(s) applied")
+            for key, value in row.items():
+                if key in query.get("measures", []):
+                    measures[key] = value
+                else:
+                    dimensions[key] = value
             
-        if query.get("timeDimensions"):
-            for td in query["timeDimensions"]:
-                if "compareDateRange" in td:
-                    parts.append("comparing time periods")
-                elif "granularity" in td:
-                    parts.append(f"at {td['granularity']} granularity")
-                    
-        if query.get("order"):
-            # Order might be in different formats after LLM generation
-            order_info = query['order']
-            if isinstance(order_info, dict):
-                parts.append("sorted by " + ', '.join(order_info.keys()))
-            elif isinstance(order_info, list) and order_info:
-                # Could be [["field", "asc"]] or [{"field": "asc"}]
-                if isinstance(order_info[0], list):
-                    fields = [item[0] for item in order_info]
-                    parts.append("sorted by " + ', '.join(fields))
-                elif isinstance(order_info[0], dict):
-                    fields = [k for item in order_info for k in item.keys()]
-                    parts.append("sorted by " + ', '.join(fields))
-            else:
-                parts.append("with ordering")
-            
-        if query.get("limit"):
-            parts.append(f"limited to {query['limit']} results")
-            
-        return f"{' '.join(parts)}. Found {row_count} records."
+            data_points.append(DataPoint(
+                dimensions=dimensions,
+                measures=measures
+            ))
+        return data_points
     
-    def _extract_key_findings(self, data_points: List[DataPoint], query: Dict[str, Any]) -> List[str]:
-        """Extract key findings from the data"""
-        findings = []
+    async def _generate_query_plan(self, inputs: TicketingDataInputs, context: Dict[str, Any]) -> QueryPlan:
+        """Generate query execution plan using LLM"""
         
-        if not data_points:
-            return ["No data found matching the criteria"]
-            
-        # For top N queries, highlight the top performer
-        if query.get("limit") and query.get("order") and data_points:
-            first_point = data_points[0]
-            measure_key = list(first_point.measures.keys())[0] if first_point.measures else None
-            if measure_key:
-                dim_key = list(first_point.dimensions.keys())[0] if first_point.dimensions else None
-                if dim_key:
-                    try:
-                        value = float(first_point.measures[measure_key])
-                        findings.append(
-                            f"Top performer: {first_point.dimensions[dim_key]} "
-                            f"with {measure_key}: {value:,.0f}"
-                        )
-                    except (ValueError, TypeError):
-                        # If conversion fails, show the value as-is
-                        findings.append(
-                            f"Top performer: {first_point.dimensions[dim_key]} "
-                            f"with {measure_key}: {first_point.measures[measure_key]}"
-                        )
+        schema_json = json.dumps(context['schema'], indent=2)
         
-        # For time series, note if there's a trend
-        if query.get("timeDimensions") and len(data_points) > 2:
-            findings.append(f"Time series data with {len(data_points)} data points")
-            
-        return findings
+        system_prompt = f"""You are a Cube.js query planner. Determine if a request needs one query or multiple queries.
 
+SCHEMA:
+{schema_json}
 
-# Testing function
-async def test_ticketing_data_capability():
-    """Test TicketingDataCapability with real queries"""
-    
-    print("🎫 Testing TicketingDataCapability")
-    print("=" * 60)
-    
-    capability = TicketingDataCapability()
-    
-    # Test 1: Simple revenue query
-    print("\n1️⃣ Simple Revenue Query (Gatsby):")
-    inputs = TicketingDataInputs(
-        session_id="test_session",
-        tenant_id="test_tenant",
-        user_id="test_user",
-        measures=["ticket_line_items.amount"],
-        dimensions=["productions.name"],
-        filters=[
-            CubeFilter(
-                member="productions.name",
-                operator="contains",
-                values=["GATSBY"]
+NOTE: Cube.js automatically handles joins between cubes. You can use measures and dimensions from different cubes in a single query.
+
+WHEN TO USE MULTIPLE QUERIES:
+- Comparing separate time periods (Q1 vs Q2, 2023 vs 2024)
+- Keywords like "vs", "compare", "versus" between time periods
+- Explicitly stated "per production" or "per event" comparisons
+
+WHEN TO USE SINGLE QUERY:
+- Simple aggregations (even across cubes)
+- All data in one time range or no time specified
+- Basic grouping and filtering
+- Top N queries
+
+QUERY STRUCTURE:
+{{
+  "measures": ["cube.measure"],
+  "dimensions": ["cube.dimension"],
+  "timeDimensions": [{{
+    "dimension": "cube.time_field",
+    "dateRange": ["2024-01-01", "2024-12-31"] or "last month",
+    "granularity": "day|week|month|quarter|year"  // Include ONLY if grouping by time
+  }}],
+  "filters": [{{
+    "member": "cube.field",
+    "operator": "equals|contains|...",
+    "values": ["value"]
+  }}],
+  "order": {{"cube.field": "asc|desc"}},
+  "limit": 100,
+  "offset": 0,
+  "total": true
+}}
+
+IMPORTANT RULES FOR TIME DIMENSIONS:
+- If grouping by time: Include "granularity": "day|week|month|quarter|year"
+- If just filtering by time: OMIT the granularity field entirely
+- NEVER use "granularity": null - this causes errors!
+
+MEMORY CONSIDERATIONS (same as query generation):
+- ticket_line_items.customer_id: use limits
+- ticket_line_items.city/postcode: use limits  
+- events.id with daily: use weekly/monthly instead
+
+Return JSON:
+{{
+    "strategy": "single" or "multi",
+    "reasoning": "Why this strategy",
+    "queries": [/* array of queries */],
+    "metadata": {{}}
+}}
+
+EXAMPLE - Multi-fetch for Q1 vs Q2 comparison:
+{{
+    "strategy": "multi",
+    "reasoning": "Comparing two separate quarters",
+    "queries": [
+        {{
+            "measures": ["ticket_line_items.amount"],
+            "timeDimensions": [{{
+                "dimension": "ticket_line_items.created_at_local",
+                "dateRange": ["2024-01-01", "2024-03-31"]
+                // No granularity - just filtering
+            }}]
+        }},
+        {{
+            "measures": ["ticket_line_items.amount"],
+            "timeDimensions": [{{
+                "dimension": "ticket_line_items.created_at_local",
+                "dateRange": ["2024-04-01", "2024-06-30"]
+                // No granularity - just filtering
+            }}]
+        }}
+    ],
+    "metadata": {{"comparison": "Q1 vs Q2 2024"}}
+}}"""
+
+        user_prompt = f"""Plan queries for:
+
+Request: {getattr(inputs, 'query_request', 'Not specified')}
+Time context: {getattr(inputs, 'time_context', 'Not specified')}
+
+Provided inputs:
+- Measures: {inputs.measures}
+- Dimensions: {inputs.dimensions if inputs.dimensions else 'none'}
+- Filters: {[f.model_dump() for f in inputs.filters] if inputs.filters else 'none'}
+- Order: {inputs.order if inputs.order else 'none'}
+- Limit: {inputs.limit if inputs.limit else 'none'}
+
+If a specific limit is provided, use that exact number in all queries."""
+
+        response = await self.llm.ainvoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ])
+        
+        # Parse JSON response
+        try:
+            import re
+            json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
+            if json_match:
+                plan_data = json.loads(json_match.group())
+                return QueryPlan(**plan_data)
+        except Exception as e:
+            logger.error(f"Failed to parse query plan: {e}")
+            # Fallback to single query with the original approach
+            query = await self._generate_advanced_query(inputs, context)
+            return QueryPlan(
+                strategy="single",
+                reasoning="Fallback to single query due to planning error",
+                queries=[query] if query else []
             )
-        ]
-    )
     
-    result = await capability.execute(inputs)
-    print(f"Success: {result.success}")
-    print(f"Rows returned: {result.total_rows}")
+    async def _execute_single_query(self, query: Dict[str, Any], tenant_id: str) -> Dict[str, Any]:
+        """Execute a single Cube.js query"""
+        return await self.cube_service.query(
+            measures=query.get("measures", []),
+            dimensions=query.get("dimensions", []),
+            filters=query.get("filters", []),
+            time_dimensions=query.get("timeDimensions"),
+            order=query.get("order", []),
+            limit=query.get("limit"),
+            offset=query.get("offset"),
+            total=query.get("total"),
+            tenant_id=tenant_id
+        )
     
-    if result.data:
-        for dp in result.data[:3]:  # Show first 3
-            print(f"  {dp.dimensions.get('productions.name', 'Unknown')}: ${dp.measures.get('ticket_line_items.amount', 0):,.0f}")
+    async def _execute_multi_fetch(self, query_plan: QueryPlan, tenant_id: str) -> List[Dict[str, Any]]:
+        """Execute multiple queries in parallel with partial result handling"""
+        # Limit to 3 parallel queries
+        queries_to_execute = query_plan.queries[:3]
+        
+        # Execute queries in parallel
+        tasks = []
+        for i, query in enumerate(queries_to_execute):
+            task = self._execute_single_query(query, tenant_id)
+            tasks.append((i, task))
+        
+        # Gather results with error handling
+        results = []
+        failed_queries = []
+        
+        for i, task in tasks:
+            try:
+                result = await task
+                results.append({
+                    "index": i,
+                    "success": True,
+                    "data": result,
+                    "query": queries_to_execute[i]
+                })
+            except Exception as e:
+                logger.error(f"Query {i} failed: {e}")
+                failed_queries.append({
+                    "index": i,
+                    "error": str(e),
+                    "query": queries_to_execute[i]
+                })
+                results.append({
+                    "index": i,
+                    "success": False,
+                    "error": str(e),
+                    "query": queries_to_execute[i]
+                })
+        
+        return results
     
-    # Test 2: Top productions by revenue
-    print("\n2️⃣ Top 5 Productions by Revenue:")
-    inputs = TicketingDataInputs(
-        session_id="test_session",
-        tenant_id="test_tenant",
-        user_id="test_user",
-        measures=["ticket_line_items.amount"],
-        dimensions=["productions.name"],
-        filters=[],
-        order={"ticket_line_items.amount": "desc"},
-        limit=5
-    )
+    def _format_single_result(self, result: Dict[str, Any], query: Dict[str, Any], query_plan: QueryPlan) -> TicketingDataResult:
+        """Format result from single query execution"""
+        # Use common transformation
+        data_points = self._transform_cube_data_to_datapoints(result.get('data', []), query)
+        
+        # Calculate totals
+        total_columns = 0
+        total_measures = 0
+        if data_points:
+            first_point = data_points[0]
+            total_columns = len(first_point.dimensions) + len(first_point.measures)
+            total_measures = len(first_point.measures)
+        
+        return TicketingDataResult(
+            success=True,
+            data=data_points,
+            query_metadata={
+                "strategy": "single",
+                "cube_response": {
+                    "annotation": result.get('annotation', {}),
+                    "query": query
+                }
+            },
+            total_rows=len(data_points),
+            total_columns=total_columns,
+            total_measures=total_measures,
+            assumptions=[query_plan.reasoning]
+        )
     
-    result = await capability.execute(inputs)
-    if result.success and result.data:
-        for i, dp in enumerate(result.data):
-            name = dp.dimensions.get('productions.name', 'Unknown')
-            revenue = dp.measures.get('ticket_line_items.amount', 0)
-            print(f"  {i+1}. {name}: ${revenue:,.0f}")
-    
-    # Test 3: Multiple measures
-    print("\n3️⃣ Revenue and Attendance:")
-    inputs = TicketingDataInputs(
-        session_id="test_session",
-        tenant_id="test_tenant",
-        user_id="test_user",
-        measures=["ticket_line_items.amount", "ticket_line_items.quantity"],
-        dimensions=["productions.name"],
-        filters=[],
-        order={"ticket_line_items.amount": "desc"},
-        limit=3
-    )
-    
-    result = await capability.execute(inputs)
-    if result.success and result.data:
-        for dp in result.data:
-            name = dp.dimensions.get('productions.name', 'Unknown')
-            revenue = dp.measures.get('ticket_line_items.amount', 0)
-            quantity = dp.measures.get('ticket_line_items.quantity', 0)
-            print(f"  {name}:")
-            print(f"    Revenue: ${revenue:,.0f}")
-            print(f"    Tickets: {quantity:,}")
-    
-    print("\n✅ TicketingDataCapability test complete!")
-
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(test_ticketing_data_capability())
+    def _format_multi_result(self, results: List[Dict[str, Any]], query_plan: QueryPlan) -> TicketingDataResult:
+        """Format and combine results from multi-fetch execution"""
+        all_data_points = []
+        successful_queries = 0
+        failed_queries = []
+        query_metadata = {
+            "strategy": "multi",
+            "total_queries": len(results),
+            "fetch_groups": []
+        }
+        
+        # Process each result
+        for result_info in results:
+            if result_info["success"]:
+                successful_queries += 1
+                query = result_info["query"]
+                result = result_info["data"]
+                
+                # Extract entity label from query if available
+                entity_label = "Unknown"
+                if query.get("filters"):
+                    for filter in query["filters"]:
+                        if filter.get("member") == "productions.name":
+                            entity_label = filter.get("values", ["Unknown"])[0]
+                            break
+                
+                # Use common transformation
+                entity_data_points = self._transform_cube_data_to_datapoints(
+                    result.get('data', []), 
+                    query
+                )
+                all_data_points.extend(entity_data_points)
+                
+                query_metadata["fetch_groups"].append({
+                    "entity": entity_label,
+                    "rows": len(entity_data_points),
+                    "success": True
+                })
+            else:
+                failed_queries.append({
+                    "index": result_info["index"],
+                    "error": result_info["error"]
+                })
+                query_metadata["fetch_groups"].append({
+                    "entity": "Failed",
+                    "rows": 0,
+                    "success": False,
+                    "error": result_info["error"]
+                })
+        
+        # Add failed query info if any
+        if failed_queries:
+            query_metadata["failed_queries"] = failed_queries
+            query_metadata["successful_queries"] = successful_queries
+        
+        # Calculate totals
+        total_columns = 0
+        total_measures = 0
+        if all_data_points:
+            first_point = all_data_points[0]
+            total_columns = len(first_point.dimensions) + len(first_point.measures)
+            total_measures = len(first_point.measures)
+        
+        # Build assumptions
+        assumptions = [query_plan.reasoning]
+        if failed_queries:
+            assumptions.append(f"Partial results: {successful_queries} of {len(results)} queries succeeded")
+        
+        return TicketingDataResult(
+            success=successful_queries > 0,  # Success if at least one query worked
+            data=all_data_points,
+            query_metadata=query_metadata,
+            total_rows=len(all_data_points),
+            total_columns=total_columns,
+            total_measures=total_measures,
+            assumptions=assumptions
+        )

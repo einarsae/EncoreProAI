@@ -168,6 +168,45 @@ Run only unit tests: docker-compose run --rm test python -m pytest tests/test_se
 - **Document decisions** - WHICH approach was chosen and why
 - **Update after EVERY session** - Never leave stale TODOs
 
+## Documentation Management (CRITICAL)
+### Core Documentation Files (Maintain These)
+- **docs/CURRENT_STATE.md** - Implementation status (single source of truth)
+- **docs/API_REFERENCE.md** - Technical reference for all components
+- **docs/TODO.md** - Current priorities and next steps
+- **docs/KNOWN_ISSUES.md** - Active bugs and workarounds
+- **QUICK_REFERENCE.md** - Commands, setup, and examples
+- **CLAUDE_RECAP.md** - Project context and latest updates
+
+### Documentation Rules
+- **NEVER reference docs/archive/** - Contains outdated content
+- **NEVER create new documentation files** - Update existing ones
+- **Each fact in ONE place only** - No duplication across docs
+- **Reference, don't repeat** - Link to other docs instead of copying
+- **Update CLAUDE_RECAP.md** - Always keep current with latest changes
+
+## Prompt Management Best Practices
+### When to Extract Prompts
+- **Complex prompts (>50 lines)**: Extract to template files
+- **Simple prompts (<50 lines)**: Keep embedded in code
+- **Shared prompts**: Always extract to templates
+
+### Template Structure
+```
+prompts/
+├── ticketing_data/
+│   ├── query_generation.md
+│   └── query_planning.md
+└── event_analysis/
+    └── analysis.md
+```
+
+### Loading Templates
+```python
+def load_prompt(name: str) -> str:
+    with open(f"prompts/{name}.md", "r") as f:
+        return f.read()
+```
+
 ## LLM-First Design Patterns
 - Capability descriptions must be LLM-parseable
 - Use structured outputs (JSON/Pydantic) for LLM responses
@@ -180,3 +219,10 @@ Run only unit tests: docker-compose run --rm test python -m pytest tests/test_se
 - Client and funding at risk
 - Focus on what works, not perfection
 - Reuse existing proven CONCEPTS (not necessarily implementations)
+
+## Current Project State (December 2024)
+- **Working Directory**: /Users/einar/CODE/EncoreProAI
+- **Git Branch**: ticketingdata
+- **TicketingDataCapability**: 100% complete (9/9 features)
+- **Next Priority**: EventAnalysisCapability with ID filtering
+- **Documentation**: Consolidated to 5 core files

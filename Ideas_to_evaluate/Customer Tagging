@@ -1,0 +1,154 @@
+# Customer Tagging Strategy and Embedding Integration
+
+## 🏰 Purpose of Tagging
+
+Tags serve as both:
+
+* **Semantic shortcuts** to group customers and drive segmentation.
+* **Structured inputs** for embeddings, agent queries, and graph relationships.
+
+They reduce the need to recompute complex logic (e.g., "has donated > \$1000 and attended 3+ events") by giving that logic a reusable name (like `major_donor` or `superfan`).
+
+---
+
+## 🎯 Use Cases for Tags
+
+### 1. **Segment Filtering**
+
+```sql
+SELECT * FROM customers
+WHERE 'major_donor' = ANY(segment_tags)
+  AND 'lapsed' = ANY(segment_tags);
+```
+
+### 2. **Embedding Enrichment**
+
+Tags are used to construct embedding input summaries:
+
+```text
+Customer has attended mostly musicals and donated $2000+. Recently inactive. Tags: major_donor, musical_fan, lapsed
+```
+
+Embedding this into a vector allows k-NN matching with other similar profiles, enabling:
+
+* "Find customers like this one."
+* "Group customers by similarity for a campaign."
+
+### 3. **Knowledge Graph Construction**
+
+Tags act as grouping constructs; the graph is composed of:
+
+* **Customer nodes**
+* **Tag/concept nodes**
+* **Edges from customer → tag** (not customer → customer)
+
+This allows neighborhood queries:
+
+* "Customers in the same segment"
+* "Bridge customers between major\_donor and opera\_fan tags"
+
+### 4. **Agent Query Mapping**
+
+Natural language queries can resolve into tag-driven SQL via a DSL or planner.
+
+#### NL Input:
+
+> "Show me lapsed high-value donors"
+
+#### Agent resolves to:
+
+```sql
+SELECT * FROM customers
+WHERE 'major_donor' = ANY(segment_tags)
+  AND 'lapsed_donor' = ANY(segment_tags);
+```
+
+Tags act as DSL anchors.
+
+### 5. **Automation and Campaign Triggers**
+
+Tags can be used in flows to:
+
+* Trigger onboarding
+* Exclude spammed segments
+* Customize experience (e.g., accessibility needs)
+
+---
+
+## 🧠 Tag Computation Examples
+
+### Rule-Based
+
+```sql
+-- Major Donor
+UPDATE customers
+SET segment_tags = array_append(segment_tags, 'major_donor')
+WHERE total_donated >= 1000;
+
+-- Lapsed
+UPDATE customers
+SET segment_tags = array_append(segment_tags, 'lapsed_donor')
+WHERE last_donation_date < NOW() - INTERVAL '12 months';
+```
+
+### Behavior-Based
+
+```sql
+-- Superfan
+UPDATE customers
+SET segment_tags = array_append(segment_tags, 'superfan')
+WHERE event_attendance_count >= 10 AND avg_spend_per_event >= 75;
+```
+
+---
+
+## 🔄 Embedding Structure (Customer-Level)
+
+### Embedding Input Template:
+
+```text
+Customer Summary:
+- Genres Attended: Musical, Ballet
+- Tags: major_donor, musical_fan, presale_enthusiast
+- Avg Spend: $120
+- Last Attended: 4 months ago
+- Ticket Lead Time: 2.1 days
+```
+
+### Embedding Purpose:
+
+* Power k-NN searches ("similar customers")
+* Improve cluster formation
+* Enable hybrid queries ("who's like X and has also donated recently")
+
+### Storage:
+
+```sql
+ALTER TABLE customers ADD COLUMN embedding vector(1536);
+```
+
+---
+
+## 📖 Tag Library Starter Set
+
+| Tag                     | Logic                                         |
+| ----------------------- | --------------------------------------------- |
+| `major_donor`           | total\_donated > \$1000                       |
+| `lapsed_donor`          | last\_donation\_date > 12 months ago          |
+| `superfan`              | 10+ events and avg spend > \$75               |
+| `first_timer`           | event\_count = 1                              |
+| `high_engagement`       | email\_open\_rate > 40% and click\_rate > 10% |
+| `accessibility_flagged` | has\_accessibility\_needs = true              |
+| `presale_enthusiast`    | bought 3+ tickets during presales             |
+| `opera_fan`             | 3+ opera events in last 12 months             |
+| `app_user`              | opened Companion app in last 30 days          |
+
+---
+
+## 🔧 Implementation Notes
+
+* Tags can be stored either as a normalized table (`customer_tags`) or as an array column (`segment_tags`) in `customers`.
+* Index tag queries for speed.
+* Recalculate tags weekly or upon new interactions.
+
+Let me know if you want a ready-to-run ETL module to calculate and refresh tags automatically.

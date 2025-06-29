@@ -1,0 +1,122 @@
+# Encore Pro Vector Intelligence Stack - Implementation Plan
+
+## 🔧 Tech Stack Overview
+
+| Layer                          | Choice                                   | Rationale                                                              |
+| ------------------------------ | ---------------------------------------- | ---------------------------------------------------------------------- |
+| **Database**                   | Self-hosted PostgreSQL (v15+) + pgvector | Fast to start, low cost, full control. Aurora-compatible.              |
+| **Vector Search**              | pgvector + ivfflat indexing              | Native vector support with approximate nearest neighbor (ANN) queries. |
+| **Knowledge Layer (optional)** | DGL or NetworkX (in-memory)              | Lightweight co-purchase and tag similarity logic.                      |
+| **Embedding Generation**       | OpenAI `text-embedding-3-small`          | High quality, low cost; suitable for customer and show vectors.        |
+| **ETL/Sync**                   | Python ETL scripts (Prefect optional)    | Sync upstream systems and orchestrate batch jobs.                      |
+| **Interface Layer**            | Cube.js + custom DSL → Agents            | Enable semantic queries, segments, and analysis.                       |
+| **Hosting**                    | EC2 or containerized service             | Minimal infra, migration-friendly.                                     |
+
+---
+
+## 📂 Data Models in PostgreSQL
+
+| Table          | Key Columns                                                    | Notes                                         |
+| -------------- | -------------------------------------------------------------- | --------------------------------------------- |
+| `customers`    | `id`, `name`, `email`, `embedding`, `tags`, `shows_attended[]` | Embedding summarizes behavior + tags.         |
+| `shows`        | `id`, `title`, `date`, `tags`, `embedding`                     | Include genre, location, metadata.            |
+| `interactions` | `customer_id`, `show_id`, `interaction_type`, `timestamp`      | Track purchases/views. Basis for graph edges. |
+| `segments`     | `id`, `name`, `criteria`, `snapshot_query`, `generated_at`     | Store static or dynamic segments.             |
+| `tags`         | `id`, `label`, `type`                                          | Controlled vocab for segmentation.            |
+
+---
+
+## 📊 Population Strategy (Bootstrapping)
+
+### 1. Tagging + Enrichment
+
+* Pull raw customer + show data from ticketing/CRM.
+* Heuristically assign tags (genre, psychographic).
+* Optional: demographic enrichment (e.g., census, Clearbit).
+
+### 2. Embedding Generation
+
+* Use `text-embedding-3-small` from OpenAI.
+
+  * Customers: concatenate tags + recent behavior.
+  * Shows: title + description + tags.
+* Store in `embedding` column as `vector(1536)`.
+
+### 3. Build Indexes
+
+* Use `ivfflat` for ANN search with 100–500 lists.
+* Reindex nightly or post-batch insert.
+
+### 4. Interaction Graph (Optional)
+
+* Build with NetworkX or DGL.
+* Nodes: customers, shows; Edges: purchases/views.
+* Enables logic like:
+
+  * "People who saw X and Y but not Z"
+  * "Top shared audiences between clusters"
+
+---
+
+## 🔀 Query & Segmentation Layer
+
+* Use Cube.js or custom DSL for agent interaction:
+
+  * Similarity search using vector distance.
+  * Segment creation from tags + embeddings.
+  * Multi-step analysis patterns via agent routing.
+
+---
+
+## 🔄 Embedding Update Strategy
+
+### What Triggers an Update
+
+* **Customers**: attendance changes, tags evolve, behavioral shifts.
+* **Shows**: static unless metadata or descriptions change.
+* **Tags**: if embedding tag vocab is used, update with vocab drift.
+
+### Update Options
+
+#### Option 1: Full Batch
+
+* Regenerate embeddings weekly.
+* Overwrite and rebuild `ivfflat` index.
+
+#### Option 2: Rolling Updates (Recommended)
+
+* Add `embedding_updated_at` timestamp.
+* Recompute embeddings older than X days.
+* Trigger index rebuild if >10–20% embeddings are refreshed.
+
+#### Option 3: Versioned Embeddings
+
+* Store `embedding_v1`, `embedding_v2`.
+* Use a `VIEW` to alias active version.
+* Enables safe A/B or phased upgrades.
+
+### Automation Tip
+
+* Use a scheduled ETL job to update stale rows and conditionally reindex.
+* Monitor percentage updated to decide when to reindex.
+
+---
+
+## ⚖️ Scale Plan (Future Triggers)
+
+| Trigger                             | Action                                            |
+| ----------------------------------- | ------------------------------------------------- |
+| pgvector performance bottlenecks    | Migrate to Aurora PostgreSQL.                     |
+| Vector search too slow/large        | Add hybrid vector store (Qdrant, Weaviate).       |
+| Advanced graph logic needed         | Move to persistent graph DB (e.g., RedisGraph).   |
+| Need for orchestration & automation | Use LangGraph or CrewAI for agent task workflows. |
+
+---
+
+## ✅ Summary
+
+Start lightweight with self-hosted PostgreSQL + pgvector and enrich with OpenAI embeddings. Leverage Python ETL for syncing data, use ANN indexes for fast lookup, and optionally build an in-memory graph. Integrate Cube.js and agents for advanced analysis. Prepare for scaling via Aurora and/or vector DBs as load increases.
+
+> Focus now: flexible architecture, low cost, quick delivery.
+
+Let me know if you want schema diagrams or ETL flow next.

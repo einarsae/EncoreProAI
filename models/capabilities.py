@@ -69,11 +69,15 @@ class CubeFilter(BaseModel):
 
 class TicketingDataInputs(CapabilityInputs):
     """Flexible data access - LLM decides query structure"""
+    query_request: Optional[str] = None  # Natural language description
+    time_context: Optional[str] = None  # e.g., "Q1 2023 vs Q2 2023"
+    time_comparison_type: Optional[str] = None  # e.g., "year_over_year"
     measures: List[str]  # e.g., ["ticket_line_items.amount", "ticket_line_items.quantity"]
     dimensions: List[str] = Field(default_factory=list)  # e.g., ["productions.name", "time.month"]
     filters: List[CubeFilter] = Field(default_factory=list)
     order: Optional[Dict[str, str]] = None  # e.g., {"ticket_line_items.amount": "desc"}
     limit: Optional[int] = None
+    entities: Optional[List[Dict[str, Any]]] = None  # Resolved entities from orchestrator
 
 
 class DataPoint(BaseModel):

@@ -41,6 +41,8 @@ class CubeService:
         time_dimensions: Optional[List[Dict]] = None,
         order: Optional[Dict] = None,
         limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        total: Optional[bool] = None,
         timezone: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute Cube.js query with minimal error handling"""
@@ -67,6 +69,10 @@ class CubeService:
                 query_body["order"] = order
         if limit:
             query_body["limit"] = limit
+        if offset:
+            query_body["offset"] = offset
+        if total is not None:
+            query_body["total"] = total
         if timezone:
             query_body["timezone"] = timezone
         
@@ -92,7 +98,25 @@ class CubeService:
             response.raise_for_status()  # Let HTTP errors bubble up naturally
             
             result = response.json()
-            logger.info(f"Cube.js response: {len(result.get('data', []))} rows")
+            
+            # Handle compareDateRange response structure
+            if result.get('queryType') == 'compareDateRangeQuery' and 'results' in result:
+                # Flatten the results into a single data array with period labels
+                flattened_data = []
+                for i, period_result in enumerate(result['results']):
+                    period_data = period_result.get('data', [])
+                    # Add period identifier to each row
+                    for row in period_data:
+                        row['__compareDateRangePeriod'] = i
+                        flattened_data.append(row)
+                
+                # Replace results structure with flattened data
+                result['data'] = flattened_data
+                result['__originalResults'] = result.pop('results')  # Keep original for reference
+                logger.info(f"Cube.js compareDateRange response: {len(result['__originalResults'])} periods, {len(flattened_data)} total rows")
+            else:
+                logger.info(f"Cube.js response: {len(result.get('data', []))} rows")
+            
             return result
     
     async def get_meta(self, tenant_id: str) -> Dict[str, Any]:
