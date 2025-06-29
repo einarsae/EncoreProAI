@@ -124,10 +124,125 @@ result = await capability.execute(TicketingDataInputs(
 - Multi-fetch generates `"granularity": null` causing errors
 
 ### EventAnalysisCapability
-**Status**: 🚧 Needs Fix  
-**Purpose**: Analyze data from TicketingDataCapability
+**Status**: ✅ MVP Complete  
+**Purpose**: Analyze data from TicketingDataCapability to provide insights
 
-**Issue**: Not using resolved entity IDs for filtering
+#### Current Implementation (MVP)
+```python
+from capabilities.event_analysis import EventAnalysisCapability
+from models.capabilities import EventAnalysisInputs
+
+capability = EventAnalysisCapability()
+result = await capability.execute(EventAnalysisInputs(
+    session_id="test",
+    tenant_id="yesplan", 
+    user_id="user123",
+    analysis_request="How is Chicago performing?",
+    data=data_from_tdc,  # Optional: pre-fetched data
+    entities=[{"id": "prod_chicago_broadway", "name": "Chicago"}]
+))
+```
+
+**Simple Version Features**:
+- Basic LLM-driven analysis
+- Progressive data requests (can ask for more data)
+- Natural language insights
+- Uses entity IDs for filtering
+
+**Implementation Approach**:
+```python
+class EventAnalysisCapability(BaseCapability):
+    """Minimal viable analysis - let LLM do the work"""
+    
+    async def execute(self, inputs: EventAnalysisInputs) -> EventAnalysisResult:
+        if not inputs.data:
+            # Need data first
+            return EventAnalysisResult(
+                analysis_complete=False,
+                insights=[],
+                orchestrator_hints={
+                    "needs_data": True,
+                    "description": f"Get data for {inputs.analysis_request}"
+                }
+            )
+        
+        # Simple prompt-based analysis
+        analysis_prompt = f"""
+        Analyze this data for: {inputs.analysis_request}
+        Entities: {inputs.entities}
+        Data: {inputs.data}
+        
+        Provide:
+        1. Key insights (be specific and quantitative)
+        2. Any concerns or anomalies
+        3. Do you need more data? If yes, what specifically?
+        """
+        
+        response = await self.llm.ainvoke(analysis_prompt)
+        
+        # Basic parsing
+        needs_more = "need more data" in response.content.lower()
+        
+        return EventAnalysisResult(
+            insights=[response.content],
+            analysis_complete=not needs_more,
+            orchestrator_hints={
+                "needs_data": needs_more,
+                "description": "Extract what data needed from response"
+            }
+        )
+```
+
+#### Future Enhancements (Add When Needed)
+
+**Phase 2: Context Tools** (Add if seeing data request loops)
+```python
+# Pre-calculated summaries to prevent asking for non-existent data
+class DataContextTool:
+    async def get_top_values(dimension, measure, tenant_id):
+        # Returns top 10 values for any dimension
+        
+class TimeRangeContextTool:
+    async def get_range(tenant_id, entity_id=None):
+        # Returns available date ranges
+```
+
+**Phase 3: Structured Analysis** (Add if LLM analysis too variable)
+```python
+# Structured prompts and response parsing
+- Specific analysis types (trend, anomaly, comparison)
+- Calculated metrics (growth rates, averages)
+- Confidence scores
+```
+
+**Phase 4: Memory Integration** (Add if seeing repeated patterns)
+```python
+# Learn from successful analyses
+- Store analysis patterns
+- User preferences
+- Common insights for entities
+```
+
+**Phase 5: Advanced Tools** (Add for sophisticated analysis)
+```python
+# Statistical analysis tools
+- Anomaly detection algorithms
+- Trend analysis
+- Segmentation
+- Predictive insights
+```
+
+**When to Add Each Enhancement**:
+1. **Context Tools**: When you see >3 rounds of "no data exists" loops
+2. **Structured Analysis**: When insights vary too much between runs
+3. **Memory**: When same questions asked repeatedly (>10 times)
+4. **Advanced Tools**: When LLM calculations prove inaccurate
+
+**Key Design Principles**:
+- Start simple, enhance based on real usage
+- Let LLM do heavy lifting initially
+- Add structure only when randomness hurts
+- Every enhancement should solve a specific observed problem
 
 ### ChatCapability
 **Status**: 🚧 Not Integrated  

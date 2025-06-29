@@ -214,6 +214,12 @@ def load_prompt(name: str) -> str:
 - Design for composability - LLM should understand how to combine capabilities
 - Include semantic descriptions, not just technical specs
 
+## LLM Model Usage
+- **NEVER suggest gpt-4** - Use environment variables instead
+- Use `LLM_TIER_STANDARD` for standard operations (default: gpt-4o-mini)
+- Use `LLM_TIER_PREMIUM` for complex analysis and reasoning
+- Let the user configure actual models via environment
+
 ## Time Constraint
 - ONE WEEK TO DELIVER
 - Client and funding at risk
@@ -222,7 +228,14 @@ def load_prompt(name: str) -> str:
 
 ## Current Project State (December 2024)
 - **Working Directory**: /Users/einar/CODE/EncoreProAI
-- **Git Branch**: ticketingdata
-- **TicketingDataCapability**: 100% complete (9/9 features)
-- **Next Priority**: EventAnalysisCapability with ID filtering
+- **Git Branch**: eventanalysis
+- **TicketingDataCapability**: 100% complete (9/9 features, 674 lines)
+- **EventAnalysisCapability**: MVP complete (structured output, 250 lines)
+- **Next Priority**: Full orchestration integration testing
 - **Documentation**: Consolidated to 5 core files
+
+## Key Implementation Patterns
+- **Structured Output**: Use Pydantic models with LLM.with_structured_output()
+- **Progressive Analysis**: Capabilities return hints for orchestrator
+- **Entity IDs**: Natural language for humans, IDs for filtering
+- **Start Simple**: MVP first, enhance based on real usage

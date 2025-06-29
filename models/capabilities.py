@@ -106,10 +106,11 @@ class AnalysisCriteria(BaseModel):
 
 
 class EventAnalysisInputs(CapabilityInputs):
-    """Event analysis inputs"""
-    data_context: Dict[str, Any]  # Results from previous data queries
-    analysis_criteria: AnalysisCriteria
-    comparison_entities: List[str] = Field(default_factory=list)  # For comparisons
+    """Event analysis inputs - MVP version"""
+    analysis_request: str  # Natural language description of what to analyze
+    data: Optional[Any] = None  # Data from TicketingDataCapability (optional)
+    entities: List[Dict[str, Any]] = Field(default_factory=list)  # Resolved entities with IDs
+    time_context: Optional[str] = None  # Time period for analysis
 
 
 class AnalysisInsight(BaseModel):
@@ -121,11 +122,12 @@ class AnalysisInsight(BaseModel):
 
 
 class EventAnalysisResult(CapabilityResult):
-    """Event analysis capability output"""
-    insights: List[AnalysisInsight]
-    summary: str
+    """Event analysis capability output - MVP version"""
+    insights: List[str] = Field(default_factory=list)  # Simple string insights for MVP
     recommendations: List[str] = Field(default_factory=list)
-    confidence: float = Field(ge=0.0, le=1.0)
+    analysis_complete: bool = False  # Whether analysis is done or needs more data
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    orchestrator_hints: Dict[str, Any] = Field(default_factory=dict)  # Hints for orchestrator
 
 
 # === Memory Capability Models ===

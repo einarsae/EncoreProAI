@@ -1,43 +1,50 @@
 """
-EventAnalysisCapability - Intelligent Analysis of Ticketing Data
+EventAnalysisCapability - Simple MVP Implementation
 
-Takes raw data from TicketingDataCapability and provides insights:
-- Trend analysis
-- Performance comparisons
-- Anomaly detection
-- Actionable recommendations
+Takes raw data from TicketingDataCapability and provides insights using LLM.
+Can request additional data through orchestrator hints.
 
-Can make progressive data requests through the orchestrator.
+MVP Features:
+- Basic LLM-driven analysis
+- Progressive data requests
+- Natural language insights
+- Entity ID-based filtering
+
+Future enhancements tracked in docs/API_REFERENCE.md
 """
 
 import os
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
-import json
+from typing import Dict, Any, List
 import logging
 
-from capabilities.base import BaseCapability, CapabilityDescription
-from models.capabilities import (
-    CapabilityInputs, CapabilityResult,
-    EventAnalysisInputs, EventAnalysisResult, 
-    AnalysisInsight, AnalysisCriteria
-)
-
 from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
 from langchain.schema import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
+
+from capabilities.base import BaseCapability, CapabilityDescription
+from models.capabilities import EventAnalysisInputs, EventAnalysisResult
 
 logger = logging.getLogger(__name__)
 
 
+# Pydantic model for structured LLM response
+class AnalysisResponse(BaseModel):
+    """Structured response from LLM analysis"""
+    insights: List[str] = Field(description="Key findings from the data")
+    recommendations: List[str] = Field(description="Actionable recommendations")
+    needs_more_data: bool = Field(default=False, description="Whether additional data is needed")
+    additional_data_request: str = Field(default="", description="What additional data is needed")
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0, description="Confidence in analysis")
+
+
 class EventAnalysisCapability(BaseCapability):
-    """Intelligent analysis of event and ticketing data"""
+    """Simple LLM-driven analysis of ticketing data"""
     
     def __init__(self):
-        # Use LLM_TIER_PREMIUM for high-quality analysis
+        # Use premium tier for analysis
         self.llm = ChatOpenAI(
-            model=os.getenv("LLM_TIER_PREMIUM", "gpt-4.1-2025-04-14"),
-            temperature=0.3
+            model=os.getenv("LLM_TIER_PREMIUM", "gpt-4o"),
+            temperature=0.1
         )
         logger.info(f"EventAnalysisCapability initialized with model: {self.llm.model_name}")
     
@@ -45,382 +52,199 @@ class EventAnalysisCapability(BaseCapability):
         """Describe capability for orchestrator"""
         return CapabilityDescription(
             name="event_analysis",
-            purpose="Analyze ticketing data to identify trends, patterns, and provide actionable insights",
+            purpose="Analyze ticketing data to identify trends, patterns, anomalies, and provide actionable insights. Can progressively request more data to deepen analysis.",
             inputs={
-                "data_context": "Results from previous data queries (from TicketingDataCapability)",
-                "analysis_criteria": "What type of analysis to perform (trends, comparison, anomalies)",
-                "comparison_entities": "Optional list of entities to compare"
+                "analysis_request": "What insights or analysis you need",
+                "data": "Optional: Pre-fetched data to analyze",
+                "entities": "Resolved entities with IDs from orchestrator",
+                "time_context": "Period for analysis"
             },
             outputs={
-                "insights": "List of discovered patterns and trends",
-                "summary": "Executive summary of the analysis",
-                "recommendations": "Actionable recommendations based on data",
-                "confidence": "Confidence level of the analysis"
+                "insights": "Key findings and patterns",
+                "recommendations": "Actionable suggestions",
+                "analysis_complete": "Whether analysis is done or needs more data",
+                "orchestrator_hints": "Hints for what to do next"
             },
             examples=[
-                "How is Chicago performing compared to last month?",
-                "What are the trends for my top shows?",
-                "Are there any concerning patterns in ticket sales?",
-                "Which shows should I focus on?",
-                "Compare Gatsby with Chicago"
+                "How is Chicago performing?",
+                "Analyze revenue trends for all shows",
+                "Find anomalies in ticket sales",
+                "Compare Chicago and Gatsby performance",
+                "Which shows are underperforming?"
             ]
         )
     
     async def execute(self, inputs: EventAnalysisInputs) -> EventAnalysisResult:
-        """Execute analysis on provided data"""
+        """Execute analysis - simple MVP version"""
         
-        logger.info(f"Executing analysis: {inputs.analysis_criteria.analysis_type}")
+        logger.info(f"Analyzing: {inputs.analysis_request}")
         
-        # Extract data from context
-        data_context = inputs.data_context
-        analysis_type = inputs.analysis_criteria.analysis_type
+        # Check if we have data to analyze
+        if not inputs.data:
+            # First call - need initial data
+            return self._request_initial_data(inputs)
         
-        # Build analysis prompt based on type
-        if analysis_type == "performance":
-            return await self._analyze_performance(data_context, inputs.analysis_criteria)
-        elif analysis_type == "trends":
-            return await self._analyze_trends(data_context, inputs.analysis_criteria)
-        elif analysis_type == "comparison":
-            return await self._analyze_comparison(data_context, inputs.comparison_entities)
-        elif analysis_type == "anomalies":
-            return await self._analyze_anomalies(data_context, inputs.analysis_criteria)
-        else:
-            # General analysis
-            return await self._analyze_general(data_context, inputs.analysis_criteria)
+        # We have data - analyze it
+        return await self._analyze_data(inputs)
     
-    async def _analyze_performance(self, data_context: Dict[str, Any], criteria: AnalysisCriteria) -> EventAnalysisResult:
-        """Analyze performance metrics"""
+    def _request_initial_data(self, inputs: EventAnalysisInputs) -> EventAnalysisResult:
+        """Create initial data request"""
         
-        prompt = self._build_performance_prompt(data_context, criteria)
-        response = await self._get_llm_analysis(prompt)
-        
-        return self._parse_analysis_response(response)
-    
-    async def _analyze_trends(self, data_context: Dict[str, Any], criteria: AnalysisCriteria) -> EventAnalysisResult:
-        """Analyze trends over time"""
-        
-        prompt = self._build_trends_prompt(data_context, criteria)
-        response = await self._get_llm_analysis(prompt)
-        
-        return self._parse_analysis_response(response)
-    
-    async def _analyze_comparison(self, data_context: Dict[str, Any], entities: List[str]) -> EventAnalysisResult:
-        """Compare multiple entities"""
-        
-        prompt = self._build_comparison_prompt(data_context, entities)
-        response = await self._get_llm_analysis(prompt)
-        
-        return self._parse_analysis_response(response)
-    
-    async def _analyze_anomalies(self, data_context: Dict[str, Any], criteria: AnalysisCriteria) -> EventAnalysisResult:
-        """Detect anomalies in data"""
-        
-        prompt = self._build_anomaly_prompt(data_context, criteria)
-        response = await self._get_llm_analysis(prompt)
-        
-        return self._parse_analysis_response(response)
-    
-    async def _analyze_general(self, data_context: Dict[str, Any], criteria: AnalysisCriteria) -> EventAnalysisResult:
-        """General analysis when type is not specific"""
-        
-        prompt = self._build_general_prompt(data_context, criteria)
-        response = await self._get_llm_analysis(prompt)
-        
-        return self._parse_analysis_response(response)
-    
-    def _build_performance_prompt(self, data_context: Dict[str, Any], criteria: AnalysisCriteria) -> str:
-        """Build prompt for performance analysis"""
-        
-        data_summary = self._summarize_data_context(data_context)
-        
-        return f"""
-You are a theater analytics expert analyzing performance data.
-
-Data provided:
-{data_summary}
-
-Analysis requested: {criteria.criteria.get('description', 'General analysis')}
-
-Analyze this data and provide:
-1. Key performance metrics and what they mean
-2. Whether performance is strong, average, or concerning
-3. Specific factors driving the performance
-4. Actionable recommendations
-
-Focus on:
-- Revenue trends
-- Attendance patterns
-- Average ticket price changes
-- Capacity utilization (if available)
-
-Return JSON:
-{{
-    "insights": [
-        {{
-            "type": "performance",
-            "description": "Clear insight about performance",
-            "confidence": 0.0-1.0,
-            "supporting_data": {{}}
-        }}
-    ],
-    "summary": "2-3 sentence executive summary",
-    "recommendations": ["Specific actionable recommendations"],
-    "confidence": 0.0-1.0,
-    "suggested_visualizations": ["line_chart_revenue_trend", "bar_chart_show_comparison"]
-}}
-"""
-    
-    def _build_trends_prompt(self, data_context: Dict[str, Any], criteria: AnalysisCriteria) -> str:
-        """Build prompt for trends analysis"""
-        
-        data_summary = self._summarize_data_context(data_context)
-        
-        return f"""
-You are a theater analytics expert analyzing trends in ticketing data.
-
-Data provided:
-{data_summary}
-
-Analysis requested: {criteria.criteria.get('description', 'General analysis')}
-
-Identify trends and patterns:
-1. Direction of key metrics (increasing/decreasing/stable)
-2. Rate of change and acceleration
-3. Seasonal or cyclical patterns
-4. Emerging opportunities or concerns
-
-Return JSON:
-{{
-    "insights": [
-        {{
-            "type": "trend",
-            "description": "Clear description of the trend",
-            "confidence": 0.0-1.0,
-            "supporting_data": {{
-                "direction": "up/down/stable",
-                "change_rate": "percentage or description"
-            }}
-        }}
-    ],
-    "summary": "2-3 sentence executive summary",
-    "recommendations": ["Actions based on trends"],
-    "confidence": 0.0-1.0,
-    "suggested_visualizations": ["time_series_chart", "trend_line_with_forecast"]
-}}
-"""
-    
-    def _build_comparison_prompt(self, data_context: Dict[str, Any], entities: List[str]) -> str:
-        """Build prompt for comparison analysis"""
-        
-        data_summary = self._summarize_data_context(data_context)
-        
-        return f"""
-You are a theater analytics expert comparing performance across shows.
-
-Data provided:
-{data_summary}
-
-Compare these entities: {', '.join(entities)}
-
-Provide comparative analysis:
-1. Relative performance of each entity
-2. Key differences in metrics
-3. Strengths and weaknesses of each
-4. Which is performing best and why
-
-Return JSON:
-{{
-    "insights": [
-        {{
-            "type": "comparison",
-            "description": "Key comparison finding",
-            "confidence": 0.0-1.0,
-            "supporting_data": {{
-                "entity": "name",
-                "metric": "value"
-            }}
-        }}
-    ],
-    "summary": "2-3 sentence comparison summary",
-    "recommendations": ["Strategic recommendations based on comparison"],
-    "confidence": 0.0-1.0,
-    "suggested_visualizations": ["grouped_bar_chart", "radar_chart_comparison"]
-}}
-"""
-    
-    def _build_anomaly_prompt(self, data_context: Dict[str, Any], criteria: AnalysisCriteria) -> str:
-        """Build prompt for anomaly detection"""
-        
-        data_summary = self._summarize_data_context(data_context)
-        
-        return f"""
-You are a theater analytics expert looking for anomalies and unusual patterns.
-
-Data provided:
-{data_summary}
-
-Analysis requested: {criteria.criteria.get('description', 'General analysis')}
-
-Identify anomalies:
-1. Unusual spikes or drops in metrics
-2. Patterns that deviate from normal
-3. Potential data quality issues
-4. Concerning trends that need attention
-
-Return JSON:
-{{
-    "insights": [
-        {{
-            "type": "anomaly",
-            "description": "Description of the anomaly",
-            "confidence": 0.0-1.0,
-            "supporting_data": {{
-                "metric": "what is unusual",
-                "deviation": "how much it deviates"
-            }}
-        }}
-    ],
-    "summary": "2-3 sentence summary of findings",
-    "recommendations": ["How to investigate or address anomalies"],
-    "confidence": 0.0-1.0,
-    "suggested_visualizations": ["scatter_plot_outliers", "control_chart"]
-}}
-"""
-    
-    def _build_general_prompt(self, data_context: Dict[str, Any], criteria: AnalysisCriteria) -> str:
-        """Build prompt for general analysis"""
-        
-        data_summary = self._summarize_data_context(data_context)
-        context_str = json.dumps(criteria.context) if criteria.context else "No additional context"
-        
-        return f"""
-You are a theater analytics expert providing insights on ticketing data.
-
-Data provided:
-{data_summary}
-
-Analysis requested: {criteria.criteria.get('description', 'General analysis')}
-Context: {context_str}
-
-Provide comprehensive analysis including:
-1. Key insights from the data
-2. What's working well
-3. Areas of concern
-4. Opportunities for improvement
-
-Keep insights concise and actionable.
-
-Return JSON:
-{{
-    "insights": [
-        {{
-            "type": "general",
-            "description": "Clear, actionable insight",
-            "confidence": 0.0-1.0,
-            "supporting_data": {{}}
-        }}
-    ],
-    "summary": "2-3 sentence executive summary",
-    "recommendations": ["Specific actions to take"],
-    "confidence": 0.0-1.0,
-    "suggested_visualizations": ["appropriate chart types based on data"]
-}}
-"""
-    
-    def _summarize_data_context(self, data_context: Dict[str, Any]) -> str:
-        """Convert data context into readable summary"""
-        
-        summary_parts = []
-        
-        # Look for task results from previous capability executions
-        for key, value in data_context.items():
-            if isinstance(value, dict) and "data" in value:
-                summary_parts.append(f"\nData from {key}:")
-                
-                # If it has the structure of a TicketingDataResult
-                if "total_rows" in value:
-                    summary_parts.append(f"Total rows: {value['total_rows']}")
-                
-                # Summarize the data points
-                data_points = value.get("data", [])[:10]  # First 10 rows
-                for dp in data_points:
-                    if isinstance(dp, dict):
-                        # Handle our DataPoint structure
-                        dims = dp.get("dimensions", {})
-                        measures = dp.get("measures", {})
-                        
-                        dim_str = ", ".join([f"{k}: {v}" for k, v in dims.items() if v])
-                        measure_str = ", ".join([f"{k}: {v}" for k, v in measures.items() if v])
-                        
-                        if dim_str and measure_str:
-                            summary_parts.append(f"  {dim_str} → {measure_str}")
-                        elif measure_str:
-                            summary_parts.append(f"  {measure_str}")
-                
-                if len(data_points) > 10:
-                    summary_parts.append(f"  ... and {len(data_points) - 10} more rows")
-        
-        return "\n".join(summary_parts) if summary_parts else "No data provided"
-    
-    async def _get_llm_analysis(self, prompt: str) -> Dict[str, Any]:
-        """Get analysis from LLM"""
-        
-        messages = [
-            SystemMessage(content="""You are a theater industry analytics expert. 
-Provide data-driven insights that are actionable and specific. 
-Be concise but thorough. 
-Always include confidence scores based on data quality and completeness.
-Suggest visualizations that would help communicate the insights."""),
-            HumanMessage(content=prompt)
-        ]
-        
-        response = await self.llm.ainvoke(messages)
-        
-        # Parse JSON response
-        try:
-            import re
-            json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
-        except Exception as e:
-            logger.error(f"Failed to parse LLM response: {e}")
-        
-        # Fallback response
-        return {
-            "insights": [{
-                "type": "general",
-                "description": "Analysis completed but response parsing failed",
-                "confidence": 0.5,
-                "supporting_data": {}
-            }],
-            "summary": response.content[:200] if response.content else "Analysis error",
-            "recommendations": ["Review the raw data for patterns"],
-            "confidence": 0.5,
-            "suggested_visualizations": []
-        }
-    
-    def _parse_analysis_response(self, response: Dict[str, Any]) -> EventAnalysisResult:
-        """Parse LLM response into EventAnalysisResult"""
-        
-        # Convert insights
-        insights = []
-        for insight_data in response.get("insights", []):
-            insights.append(AnalysisInsight(
-                type=insight_data.get("type", "general"),
-                description=insight_data.get("description", ""),
-                confidence=float(insight_data.get("confidence", 0.7)),
-                supporting_data=insight_data.get("supporting_data", {})
-            ))
+        # Build natural language description for what data we need
+        data_description = self._determine_initial_data_needs(inputs)
         
         return EventAnalysisResult(
             success=True,
-            insights=insights,
-            summary=response.get("summary", "Analysis complete"),
-            recommendations=response.get("recommendations", []),
-            confidence=float(response.get("confidence", 0.7)),
-            metadata={
-                "llm_used": self.llm.model_name,
-                "analysis_timestamp": datetime.now().isoformat(),
-                "suggested_visualizations": response.get("suggested_visualizations", [])
+            insights=[],
+            recommendations=[],
+            analysis_complete=False,
+            confidence=0.0,
+            orchestrator_hints={
+                "needs_data": True,
+                "suggested_capability": "ticketing_data",
+                "data_request": {
+                    "natural_language": data_description,
+                    "analysis_context": inputs.analysis_request,
+                    "entities": inputs.entities,
+                    "time_context": inputs.time_context
+                },
+                "reasoning": "Need initial data to begin analysis"
             }
         )
+    
+    def _determine_initial_data_needs(self, inputs: EventAnalysisInputs) -> str:
+        """Figure out what initial data to request
+        
+        Note: We use entity names in natural language for clarity,
+        but the orchestrator should convert these to IDs when building
+        the actual TicketingDataInputs.
+        """
+        
+        request = inputs.analysis_request.lower()
+        entities_str = ", ".join([e.get("name", "") for e in inputs.entities]) if inputs.entities else ""
+        
+        # Simple heuristics for common requests
+        if "trend" in request:
+            time_context = inputs.time_context or "last 6 months"
+            return f"Get {entities_str or 'all shows'} revenue and attendance over {time_context} with monthly granularity"
+        
+        elif "compar" in request:
+            return f"Get revenue, attendance, and average ticket price for {entities_str or 'all shows'} for {inputs.time_context or 'last 3 months'}"
+        
+        elif "anomal" in request or "unusual" in request:
+            return f"Get daily revenue and attendance for {entities_str or 'all shows'} for {inputs.time_context or 'last month'}"
+        
+        elif "underperform" in request or "overperform" in request:
+            return f"Get revenue and attendance by show for {inputs.time_context or 'last 3 months'} to identify performance levels"
+        
+        else:
+            # Generic request
+            return f"Get revenue and attendance data for {entities_str or inputs.analysis_request} for {inputs.time_context or 'recent period'}"
+    
+    async def _analyze_data(self, inputs: EventAnalysisInputs) -> EventAnalysisResult:
+        """Analyze provided data with LLM using structured output"""
+        
+        # Format data for LLM
+        data_summary = self._format_data_for_analysis(inputs.data)
+        
+        # Build analysis prompt - no need to specify JSON structure
+        analysis_prompt = f"""
+        You are analyzing ticketing data for: {inputs.analysis_request}
+        
+        Entities involved: {inputs.entities}
+        Time context: {inputs.time_context}
+        
+        Data provided:
+        {data_summary}
+        
+        Please analyze this data and provide:
+        1. Key insights with specific numbers and percentages
+        2. Actionable recommendations based on the data
+        3. Whether you need additional data to complete the analysis
+        
+        Be quantitative and specific. Focus on actionable insights.
+        """
+        
+        # Get structured LLM analysis
+        messages = [
+            SystemMessage(content="You are a theater analytics expert. Provide clear, data-driven insights."),
+            HumanMessage(content=analysis_prompt)
+        ]
+        
+        # Use structured output with enforced schema
+        try:
+            # Get structured response - it returns the Pydantic object directly
+            analysis = await self.llm.with_structured_output(AnalysisResponse).ainvoke(messages)
+            
+        except Exception as e:
+            logger.error(f"Failed to get structured response: {e}")
+            # Fallback - use the same Pydantic model
+            analysis = AnalysisResponse(
+                insights=["Analysis failed - please try again"],
+                recommendations=[],
+                needs_more_data=False,
+                confidence=0.5
+            )
+        
+        # Build result based on structured response
+        if analysis.needs_more_data:
+            return EventAnalysisResult(
+                success=True,
+                insights=analysis.insights,
+                recommendations=analysis.recommendations,
+                analysis_complete=False,
+                confidence=analysis.confidence,
+                orchestrator_hints={
+                    "needs_data": True,
+                    "suggested_capability": "ticketing_data",
+                    "data_request": {
+                        "natural_language": analysis.additional_data_request or "Need more data",
+                        "partial_analysis": True,
+                        "context": "Additional data for deeper analysis"
+                    },
+                    "reasoning": "Need more data to complete analysis"
+                }
+            )
+        else:
+            return EventAnalysisResult(
+                success=True,
+                insights=analysis.insights,
+                recommendations=analysis.recommendations,
+                analysis_complete=True,
+                confidence=analysis.confidence,
+                orchestrator_hints={
+                    "analysis_complete": True,
+                    "suggested_action": "present_to_user"
+                }
+            )
+    
+    def _format_data_for_analysis(self, data: Any) -> str:
+        """Format data into readable summary for LLM"""
+        
+        if not data:
+            return "No data provided"
+        
+        # Handle different data formats
+        if isinstance(data, list):
+            # List of DataPoints
+            lines = ["Data points:"]
+            for i, point in enumerate(data[:20]):  # First 20 points
+                if hasattr(point, 'dimensions') and hasattr(point, 'measures'):
+                    dim_str = ", ".join([f"{k}: {v}" for k, v in point.dimensions.items()])
+                    measure_str = ", ".join([f"{k}: {v}" for k, v in point.measures.items()])
+                    lines.append(f"{i+1}. {dim_str} → {measure_str}")
+                else:
+                    lines.append(f"{i+1}. {str(point)}")
+            
+            if len(data) > 20:
+                lines.append(f"... and {len(data) - 20} more rows")
+            
+            return "\n".join(lines)
+        
+        elif isinstance(data, dict):
+            # Dictionary format
+            return str(data)
+        
+        else:
+            # Unknown format
+            return str(data)
