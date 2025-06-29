@@ -26,7 +26,7 @@ from capabilities.event_analysis import EventAnalysisCapability
 from models.capabilities import (
     ChatInputs, EmotionalContext, UserContext,
     TicketingDataInputs, CubeFilter,
-    EventAnalysisInputs, AnalysisCriteria
+    EventAnalysisInputs
 )
 
 
@@ -369,18 +369,15 @@ class WorkflowNodes:
         # Get inputs from task
         task_inputs = task.get("inputs", {})
         
-        # Build event analysis inputs from task
+        # Build event analysis inputs from task - MVP version
         inputs = EventAnalysisInputs(
             session_id=state.core.session_id,
             tenant_id=state.core.tenant_id,
             user_id=state.core.user_id,
-            data_context=task_inputs.get("data_context", {}),
-            analysis_criteria=AnalysisCriteria(
-                analysis_type=task_inputs.get("analysis_type", "general"),
-                criteria=task_inputs.get("criteria", {}),
-                context=task_inputs.get("context", {})
-            ),
-            comparison_entities=task_inputs.get("comparison_entities", [])
+            analysis_request=task_inputs.get("analysis_request", "General analysis"),
+            data=task_inputs.get("data"),  # Optional data from previous capability
+            entities=task_inputs.get("entities", []),  # Resolved entities with IDs
+            time_context=task_inputs.get("time_context")
         )
         
         # Execute
