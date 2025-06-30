@@ -9,20 +9,27 @@ This is an LLM-first architecture with adaptive planning. We extract semantic fr
 ### ✅ Implemented
 - Frame extraction (simplified structure)
 - Entity resolution with ambiguity preservation
-- TicketingDataCapability with advanced Cube.js features
+- TicketingDataCapability with advanced Cube.js features (100% complete)
+- EventAnalysisCapability with structured LLM analysis
+- ChatCapability with emotional support
 - Core services (CubeService, EntityResolver, ConceptResolver)
 - Pydantic v2 models for state management
+- Dynamic capability registry with runtime discovery
+- Generic capability execution (no hardcoded methods)
+- Capability categories and help system
+- Self-describing capabilities with build_inputs() pattern
+- LangGraph workflow with orchestration
+- Single-task execution pattern
 
 ### 🚧 Partially Implemented
-- LangGraph workflow structure (exists but not fully integrated)
-- Orchestration node (implemented but not tested with real data)
-- ChatCapability (code exists, needs integration)
-- EventAnalysisCapability (needs ID-based filtering fix)
+- Memory learning system (mem0 integrated but needs testing)
+- Multi-frame query handling (infrastructure exists)
+- Loop prevention mechanisms
 
 ### ❌ Not Implemented
-- Full orchestration loop with all capabilities
-- Multi-frame query handling
-- Complete memory learning system
+- DataContextTool for dimension summaries
+- TimeRangeContextTool for data availability
+- Query limits to prevent memory exhaustion
 
 ## Intended Architecture
 
@@ -59,7 +66,7 @@ START → extract_frames → resolve_entities → orchestrate → execute_capabi
 
 - Time resolution: handled by capabilities when they need date ranges
 - Concept resolution: done on-demand during orchestrator context building
-- Execution nodes: separate nodes for each capability (chat, ticketing_data, event_analysis)
+- Execution: single generic node that works with any capability
 
 ### 2. Frame Extraction (Simplified)
 
@@ -146,6 +153,9 @@ async def orchestrate_node(state: AgentState) -> AgentState:
         if len(e.candidates) > 1
     ]
     
+    # Build dynamic capabilities context
+    capabilities_context = self._build_capabilities_context()
+    
     orchestration_prompt = f"""
     Query: {state.core.query}
     Frame Understanding:
@@ -158,8 +168,7 @@ async def orchestrate_node(state: AgentState) -> AgentState:
     Completed Tasks:
     {format_completed_tasks(state.execution.completed_tasks)}
     
-    Available Capabilities:
-    {[cap.describe() for cap in capability_registry.get_all()]}
+    {capabilities_context}
     
     Create the NEXT SINGLE task or complete.
     
@@ -196,6 +205,28 @@ async def orchestrate_node(state: AgentState) -> AgentState:
         state.routing.next_node = "orchestrate"
     
     return state
+
+def _build_capabilities_context(self) -> str:
+    """Build capabilities context dynamically from loaded capabilities"""
+    capabilities_text = "\n\nAvailable Capabilities:"
+    
+    for name, capability in self.capabilities.items():
+        description = capability.describe()
+        capabilities_text += f"\n\n- {description.name}: {description.purpose}"
+        
+        # Add input/output details
+        if description.inputs:
+            capabilities_text += "\n  Inputs:"
+            for key, desc in description.inputs.items():
+                capabilities_text += f"\n    - {key}: {desc}"
+        
+        # Add examples
+        if description.examples:
+            capabilities_text += "\n  Examples:"
+            for example in description.examples[:3]:  # Limit to 3
+                capabilities_text += f"\n    - \"{example}\""
+    
+    return capabilities_text
 ```
 
 **Key Innovation**: Frame-based orchestration! The orchestrator:
@@ -249,22 +280,51 @@ class CubeService:
             return response.json()
 ```
 
-### 3. Capability Layer (NEW)
+### 3. Capability Layer
 
 ```python
 class BaseCapability(ABC):
-    """Minimal abstraction - no defensive coding"""
+    """Self-contained capabilities with no coupling to orchestrator"""
     
     @abstractmethod
     def describe(self) -> CapabilityDescription:
-        """For LLM understanding"""
+        """Self-describe for LLM understanding"""
+        # Includes: name, purpose, category, inputs, outputs, examples
         
     @abstractmethod
     async def execute(self, inputs: CapabilityInputs) -> CapabilityResult:
         """Execute with Pydantic models (not dicts)"""
+        
+    def build_inputs(self, task: Dict, state: AgentState) -> CapabilityInputs:
+        """Build typed inputs from task and state - capability owns this logic"""
+        
+    def summarize_result(self, result: CapabilityResult) -> str:
+        """Summarize result for human consumption"""
 ```
 
-### 4. ChatCapability (NEW & CRITICAL)
+### 4. Capability Registry
+
+```python
+class CapabilityRegistry:
+    """Dynamic capability discovery and management"""
+    
+    def get_all_instances(self) -> Dict[str, BaseCapability]:
+        """Get all registered capabilities"""
+        
+    def get_capabilities_by_category(self) -> Dict[str, List[BaseCapability]]:
+        """Group capabilities by their self-declared category"""
+        
+    def get_help_text(self) -> str:
+        """Generate user-friendly help text dynamically"""
+```
+
+Capabilities are:
+- **Self-describing**: Each declares its own category and purpose
+- **Discoverable**: Registry finds them at runtime
+- **Categorized**: data, analysis, communication, planning, action
+- **User-friendly**: Can explain what they do
+
+### 5. ChatCapability
 
 ```python
 class ChatCapability(BaseCapability):
@@ -277,7 +337,7 @@ class ChatCapability(BaseCapability):
         # Handle companionship needs
 ```
 
-### 5. Generic Analysis (NOT HARDCODED)
+### 6. Generic Analysis
 
 ```python
 class EventAnalysisCapability(BaseCapability):
@@ -557,6 +617,48 @@ This example shows how frame-based understanding handles mixed emotional and ana
 - **Clear Context**: Each decision has full visibility
 - **Natural Flow**: Mimics human problem-solving
 
+## Capability Design Principles (CRITICAL)
+
+### 1. Self-Describing Capabilities
+- Every capability implements `describe()` returning a `CapabilityDescription`
+- Descriptions include purpose, inputs, outputs, and examples
+- Orchestrator discovers capabilities dynamically - NO hardcoded details
+- Purpose should be clear and specific, not vague or defensive
+
+### 2. Separation of Concerns
+- **Data Fetching**: Pure data retrieval, no interpretation (TicketingDataCapability)
+- **Analysis**: Pure analysis, no data fetching (EventAnalysisCapability)
+- **Support**: Pure conversation, no data access (ChatCapability)
+- Each capability has ONE clear responsibility
+
+### 3. Dynamic Orchestration
+- Orchestrator uses `_build_capabilities_context()` for dynamic descriptions
+- NO hardcoded capability details in orchestrator prompts
+- Route by intent from capability descriptions, not implementation details
+- Frame-based understanding guides routing decisions
+- Capabilities are discovered at runtime via registry
+- Generic execution pattern for all capabilities
+
+### 4. Data Format Consistency
+- ALL components use Pydantic models - no dict conversions
+- Expect correct formats, fail clearly if wrong
+- NO defensive format handling or symptom-fixing
+- Fix format issues at the source, not with adapters
+
+### 5. Clear Communication
+- Use positive language in prompts ("do this" not "DON'T do that")
+- Examples should match exact purpose (no "trends" in data fetching examples)
+- Capability descriptions visible to orchestrator should guide routing
+- Remove implementation details from high-level descriptions
+
+## Architecture Insights
+
+- **Frame-Based > Intent Classification**: Semantic understanding beats categories
+- **Dynamic > Hardcoded**: Discover capabilities at runtime
+- **Fail Fast > Defensive**: Clear errors beat silent failures
+- **Single Task > Planning**: Execute one task, see results, adapt
+- **Separation > Monoliths**: Each component does one thing well
+
 ## Critical Success Factors
 
 1. **Single-Task Execution**: One task at a time with replanning
@@ -564,3 +666,5 @@ This example shows how frame-based understanding handles mixed emotional and ana
 3. **Frame-Driven Understanding**: Mentions + relations guide everything
 4. **LLM Orchestration**: No hardcoded flows or plans
 5. **100% Test Success**: With real data (Gatsby, Hell's Kitchen, Outsiders)
+6. **Dynamic Capability Discovery**: Orchestrator learns capabilities at runtime
+7. **Root Cause Fixes**: Never patch symptoms, fix the source

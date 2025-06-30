@@ -244,3 +244,49 @@ def load_prompt(name: str) -> str:
 - **Progressive Analysis**: Capabilities return hints for orchestrator
 - **Entity IDs**: Natural language for humans, IDs for filtering
 - **Start Simple**: MVP first, enhance based on real usage
+
+## Capability Design Principles (CRITICAL)
+### 1. Self-Describing Capabilities
+- Every capability implements `describe()` returning a `CapabilityDescription`
+- Descriptions include purpose, inputs, outputs, examples, AND category
+- Orchestrator discovers capabilities dynamically - NO hardcoded details
+- Purpose should be clear and specific, not vague or defensive
+- Categories: data, analysis, communication, planning, action
+
+### 2. Separation of Concerns
+- **Data Fetching**: Pure data retrieval, no interpretation (TicketingDataCapability)
+- **Analysis**: Pure analysis, no data fetching (EventAnalysisCapability)
+- **Support**: Pure conversation, no data access (ChatCapability)
+- Each capability has ONE clear responsibility
+
+### 3. Dynamic Orchestration
+- Capabilities are discovered at runtime via CapabilityRegistry
+- Generic execution pattern - single execute_capability_node for all
+- Each capability owns its input building via build_inputs() method
+- NO hardcoded execution methods per capability
+- Frame-based understanding guides routing decisions
+
+### 4. Data Format Consistency
+- ALL components use Pydantic models - no dict conversions
+- Expect correct formats, fail clearly if wrong
+- NO defensive format handling or symptom-fixing
+- Fix format issues at the source, not with adapters
+
+### 5. Clear Communication
+- Use positive language in prompts ("do this" not "DON'T do that")
+- Examples should match exact purpose (no "trends" in data fetching examples)
+- Capability descriptions visible to orchestrator should guide routing
+- Remove implementation details from high-level descriptions
+
+### 6. Scalable Architecture
+- New capabilities just need to implement BaseCapability interface
+- Add capability file to capabilities/ directory - auto-discovered
+- No changes needed to orchestrator or workflow when adding capabilities
+- Help system automatically includes new capabilities
+
+## Architecture Insights
+- **Frame-Based > Intent Classification**: Semantic understanding beats categories
+- **Dynamic > Hardcoded**: Discover capabilities at runtime
+- **Fail Fast > Defensive**: Clear errors beat silent failures
+- **Single Task > Planning**: Execute one task, see results, adapt
+- **Separation > Monoliths**: Each component does one thing well

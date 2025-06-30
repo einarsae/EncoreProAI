@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 from models.frame import Frame
+from models.orchestration import FinalResponse
 
 
 class Message(BaseModel):
@@ -39,7 +40,7 @@ class CoreState(BaseModel):
     status: Literal["processing", "complete", "error"] = "processing"
     current_node: Optional[str] = None
     messages: List[Message] = Field(default_factory=list)
-    final_response: Optional[Dict[str, Any]] = None
+    final_response: Optional[FinalResponse] = None
 
 
 class SemanticState(BaseModel):
@@ -71,6 +72,7 @@ class ExecutionState(BaseModel):
 class RoutingState(BaseModel):
     """Next node decisions"""
     next_node: str = "orchestrate"  # Default entry point
+    capability_to_execute: Optional[str] = None  # For generic capability execution
 
 
 class MemoryState(BaseModel):

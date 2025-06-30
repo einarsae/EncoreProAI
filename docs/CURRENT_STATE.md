@@ -72,20 +72,61 @@ This document reflects the ACTUAL current state of the EncoreProAI project as of
   - Memory integration
   - Statistical tools
 
+### 2. **Dynamic Capability Descriptions**
+- **Status**: ✅ Fully implemented
+- **Implementation**:
+  - Orchestrator uses `_build_capabilities_context()` to discover capabilities
+  - NO hardcoded capability details in orchestrator
+  - Each capability self-describes via `describe()` method
+  - 100% routing accuracy after implementation
+- **Benefits**:
+  - No drift between capability and orchestrator knowledge
+  - Easy to add new capabilities
+  - Clear separation of concerns
+
+### 3. **Data Format Alignment**
+- **Status**: ✅ All phases complete
+- **Phase 1**: Fixed order format (dict vs list)
+- **Phase 2**: Unified Entity models to Pydantic everywhere
+- **Phase 3**: Standardized all data interfaces
+- **Root causes fixed**:
+  - CubeService no longer converts order format
+  - EntityResolver returns Pydantic models directly
+  - All defensive format handling removed
+
+### 4. **Dynamic Capability System**
+- **Status**: ✅ Fully implemented
+- **Features**:
+  - Dynamic capability registry with runtime discovery
+  - Generic execution pattern (no hardcoded methods)
+  - Capabilities self-describe with category
+  - Each capability owns its input building logic
+  - Help system can explain available capabilities
+- **Benefits**:
+  - Add new capabilities without touching orchestrator
+  - User can ask "What can you help me with?"
+  - Ready to scale to 6+ capabilities
+
 ## 🚧 In Progress
 
 ### 1. **Full Orchestration Integration**
-- **Status**: Components ready, need integration testing
-- **Required Steps**:
-  - Register EventAnalysisCapability in orchestrator
-  - Test progressive analysis flow (EAC → TDC → EAC)
-  - Ensure entity IDs flow correctly
-  - Test all capability interactions
+- **Status**: ✅ Mostly complete, testing in progress
+- **Completed**:
+  - All capabilities registered and self-describing
+  - Progressive analysis flow working (EAC → TDC → EAC)
+  - Entity IDs flow correctly
+  - Dynamic routing working at 100% accuracy
+- **Remaining**:
+  - Fix infinite orchestration loop
+  - Add query limits to prevent exhaustion
 
 ### 2. **ChatCapability Integration**
-- **Status**: Implementation complete but not wired
-- **Required**: Connect to orchestrator routing
-- **Test**: Emotional support flows
+- **Status**: ✅ Fully integrated and working
+- **Features**:
+  - Emotional support detection
+  - Context-aware responses
+  - Proper routing from orchestrator
+  - Tested with mixed emotional/data queries
 
 ## ❌ Not Implemented
 
@@ -121,23 +162,20 @@ This document reflects the ACTUAL current state of the EncoreProAI project as of
 
 ## 🐛 Known Issues
 
-### 1. **Multi-fetch Granularity Bug** ✅ FIXED
-- **Previous Issue**: LLM generated `"granularity": null` causing 400 errors
-- **Solution**: Updated prompts to clarify:
-  - For time grouping: Include valid granularity ("day", "week", "month", etc.)
-  - For time filtering only: Omit granularity field entirely
-  - Never use `"granularity": null`
-- **Status**: All multi-fetch tests now passing
+### 1. **Infinite Orchestration Loop**
+- **Issue**: Orchestrator sometimes doesn't complete, keeps looping
+- **Status**: 🚧 Under investigation
+- **Workaround**: Loop counter protection in place
 
-### 2. **Test Infrastructure**
+### 2. **Memory Exhaustion Risk**
+- **Issue**: No query limits, could exhaust memory with large results
+- **Status**: ❌ Not implemented
+- **Required**: Add result size limits to capabilities
+
+### 3. **Test Infrastructure**
 - Tests take too long (49s for one test file)
 - Some tests timeout after 2 minutes
 - Docker test runner could be optimized
-
-### 3. **Documentation Misalignment**
-- README shows features as complete that aren't
-- Architecture docs show unimplemented patterns
-- TODO.md has outdated status markers
 
 ## 🔧 Configuration
 

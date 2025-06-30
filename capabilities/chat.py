@@ -40,11 +40,76 @@ class ChatCapability(BaseCapability):
             self.model = model or os.getenv("LLM_TIER_STANDARD", "gpt-4o-mini")
             self.api_url = "https://api.openai.com/v1/chat/completions"
     
+    def build_inputs(self, task: Dict[str, Any], state) -> ChatInputs:
+        """Build ChatInputs from task and state"""
+        # Get task inputs
+        task_inputs = task.get("inputs", {})
+        
+        # Detect emotional context
+        emotional_context = self._detect_emotional_context(state)
+        
+        # Get conversation history
+        history = [msg for msg in state.core.messages if msg.role in ["user", "assistant"]]
+        
+        return ChatInputs(
+            session_id=state.core.session_id,
+            tenant_id=state.core.tenant_id,
+            user_id=state.core.user_id,
+            message=task_inputs.get("message", state.core.query),
+            emotional_context=emotional_context,
+            conversation_history=history,
+            user_context=UserContext()  # TODO: Get from user profile
+        )
+    
+    def _detect_emotional_context(self, state) -> EmotionalContext:
+        """Detect emotional context from state"""
+        frame = state.get_current_frame()
+        
+        # Check for emotional concepts in frame
+        emotional_keywords = {
+            'overwhelmed', 'stressed', 'worried', 'confused', 
+            'frustrated', 'anxious', 'help'
+        }
+        
+        support_needed = False
+        stress_level = None
+        
+        if frame and frame.concepts:
+            for concept in frame.concepts:
+                if concept.lower() in emotional_keywords:
+                    support_needed = True
+                    # Map to stress levels
+                    if concept.lower() in ['overwhelmed', 'stressed', 'anxious']:
+                        stress_level = 'high'
+                    else:
+                        stress_level = 'medium'
+                    break
+        
+        # Also check query directly
+        query_lower = state.core.query.lower()
+        if any(keyword in query_lower for keyword in emotional_keywords):
+            support_needed = True
+            if not stress_level:
+                stress_level = 'medium'
+        
+        return EmotionalContext(
+            support_needed=support_needed,
+            stress_level=stress_level
+        )
+    
+    def summarize_result(self, result: ChatResult) -> str:
+        """Summarize chat result"""
+        if result.response:
+            truncated = result.response[:150] + "..." if len(result.response) > 150 else result.response
+            return f"Chat response: {truncated}"
+        return "Chat completed"
+    
     def describe(self) -> CapabilityDescription:
         """Describe chat capability for orchestrator"""
         return CapabilityDescription(
             name="Chat",
             purpose="Provide companionship, emotional support, and natural conversation for theater and Broadway professionals",
+            category="communication",
             inputs={
                 "message": "User's message or emotional expression",
                 "emotional_context": "Detected emotional state and support needs",

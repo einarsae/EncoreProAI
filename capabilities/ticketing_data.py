@@ -73,18 +73,19 @@ class TicketingDataCapability(BaseCapability):
         """
         return CapabilityDescription(
             name="ticketing_data",
-            purpose="Fetch raw ticketing transaction data with advanced Cube.js features. Supports intelligent multi-fetch for per-event queries and non-overlapping time periods. Handles production (show) and event (performance) data. Features include pagination (offset/total) and all standard aggregations. No interpretation or analysis - just data retrieval. For insights and recommendations, use event_analysis capability.",
+            purpose="Retrieve ticketing data: revenue, attendance, and sales metrics by production, venue, time period, and other dimensions. Can handle multiple queries in one request - different time periods, separate productions, or any combination of data needs.",
+            category="data",
             inputs={
                 "query_request": "Natural language description of what data you need",
-                "measures": "What to measure (revenue, attendance, prices ['min', 'max', 'avg'], count, show dates, sales dates)",
-                "dimensions": "How to group data (by show, venue, time, retailers/outlets, ticket types, price, location, sales channels, etc.)",
-                "filters": "What to filter by (entities, time ranges ['inDateRange', 'beforeDate', 'afterDate'], sales channels, ticket types, price bands, cities, postcode, customer, event)",
-                "time_context": "Time period for data (e.g., 'November 2024', 'Q1 2024', '2024')",
-                "time_comparison_type": "Optional: year_over_year, month_over_month, quarter_over_quarter, week_over_week",
+                "measures": "Revenue (ticket_line_items.amount) or attendance (ticket_line_items.quantity)",
+                "dimensions": "Group by: productions.name, venue, time, location, sales channels",
+                "filters": "Filter by entities (use IDs when available), time ranges, or other criteria",
+                "time_context": "Time period like 'November 2024', 'Q1 2024', '2024'",
+                "time_comparison_type": "Optional: year_over_year, month_over_month, etc.",
                 "time_granularity": "Optional: day, week, month, quarter, year",
                 "entities": "Resolved entities with IDs from orchestrator",
-                "limit": "Optional: max number of results",
-                "order": "Optional: how to sort results"
+                "limit": "Optional: max rows to return",
+                "order": "Optional: sort like {\"ticket_line_items.amount\": \"desc\"}"
             },
             outputs={
                 "data": "Requested data points",
@@ -95,16 +96,55 @@ class TicketingDataCapability(BaseCapability):
                 "total_measures": "Number of measures returned"
             },
             examples=[
-                "Revenue trends for Chicago from October to December 2024",
+                "Revenue for Chicago from October to December 2024",
                 "Attendance for Gatsby and Wicked this year",  
                 "Top 5 venues by average ticket price",
                 "Q1 and Q2 revenue data",
-                "Sales per event by day for Chicago and Gatsby",
-                "Monthly revenue for all productions this year",
+                "Daily sales for Chicago and Gatsby events",
+                "Monthly revenue breakdown by production",
                 "Page 3 of production revenues (50 per page)",
-                "Production revenue with total count for pagination"
+                "All productions with revenue over $1M"
             ]
         )
+    
+    def build_inputs(self, task: Dict[str, Any], state) -> TicketingDataInputs:
+        """Build TicketingDataInputs from task and state"""
+        # Get task inputs
+        task_inputs = task.get("inputs", {})
+        
+        return TicketingDataInputs(
+            session_id=state.core.session_id,
+            tenant_id=state.core.tenant_id,
+            user_id=state.core.user_id,
+            query_request=task_inputs.get("description", state.core.query),
+            measures=task_inputs.get("measures", []),
+            dimensions=task_inputs.get("dimensions", []),
+            filters=task_inputs.get("filters", []),
+            order=task_inputs.get("order", {}),
+            limit=task_inputs.get("limit", 50),
+            offset=task_inputs.get("offset", 0),
+            granularity=task_inputs.get("granularity"),
+            time_context=task_inputs.get("time_context"),
+            time_comparison_type=task_inputs.get("time_comparison_type"),
+            time_granularity=task_inputs.get("time_granularity"),
+            entities=task_inputs.get("entities", [])
+        )
+    
+    def summarize_result(self, result: TicketingDataResult) -> str:
+        """Summarize data retrieval result"""
+        if result.success and result.data:
+            if isinstance(result.data, list):
+                return f"Retrieved {len(result.data)} data records"
+            elif isinstance(result.data, dict) and 'queries' in result.data:
+                # Multi-fetch result
+                total_records = sum(len(q.get('data', [])) for q in result.data['queries'])
+                return f"Retrieved {total_records} records across {len(result.data['queries'])} queries"
+            else:
+                return "Data retrieved successfully"
+        elif result.success:
+            return "Query completed but no data found"
+        else:
+            return "Data retrieval failed"
     
     async def execute(self, inputs: TicketingDataInputs) -> TicketingDataResult:
         """Execute data query using all Cube.js capabilities
@@ -265,20 +305,22 @@ ADDITIONAL FEATURES:
 - Hierarchical data: Use multiple dimensions (e.g., ["retailers.name", "sales_channels.name"])
 
 RULES:
-1. Use exact field names from schema (e.g., "ticket_line_items.amount")
-2. When user specifies a limit, use that exact number
-3. When adding any limit, also add order by the primary measure descending
-4. Use "member" (not "dimension") as the key in filter objects
-5. Empty order should be {} not []
-6. Common translations:
+1. Query must have at least one of: measures, dimensions, or timeDimensions with granularity
+2. Use exact field names from schema (e.g., "ticket_line_items.amount")
+3. When user specifies a limit, use that exact number
+4. When adding any limit, also add order by the primary measure descending
+5. Use "member" (not "dimension") as the key in filter objects
+6. Empty order should be {}
+7. Common translations:
    - "revenue" or "sales" → ticket_line_items.amount
    - "attendance" or "tickets" → ticket_line_items.quantity
    - "by show" or "by production" → productions.name
-7. For timeDimensions:
-   - If grouping by time, ALWAYS include valid granularity
-   - If just filtering by time, OMIT the granularity field entirely
-   - NEVER use "granularity": null
-8. ALWAYS convert relative dates to explicit YYYY-MM-DD format
+8. For timeDimensions:
+   - When grouping by time, include granularity (day, week, month, quarter, year)
+   - When filtering by time only, omit the granularity field
+   - Valid filter: {"dimension": "...", "dateRange": ["2024-01-01", "2024-12-31"]}
+   - Valid grouping: {"dimension": "...", "dateRange": [...], "granularity": "month"}
+9. Convert relative dates to YYYY-MM-DD format
    - Example: "last month" → ["2024-11-01", "2024-11-30"]
    - Today is: """ + current_date + """
 
@@ -538,7 +580,7 @@ If a specific limit is provided, use that exact number in all queries."""
             dimensions=query.get("dimensions", []),
             filters=query.get("filters", []),
             time_dimensions=query.get("timeDimensions"),
-            order=query.get("order", []),
+            order=query.get("order"),
             limit=query.get("limit"),
             offset=query.get("offset"),
             total=query.get("total"),

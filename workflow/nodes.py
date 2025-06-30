@@ -9,6 +9,7 @@ import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
+import logging
 
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
@@ -16,6 +17,7 @@ from langchain.schema import HumanMessage, SystemMessage
 
 from models.state import AgentState, TaskResult, ExecutionState
 from models.frame import Frame, EntityToResolve
+from models.orchestration import Task, OrchestrationDecision, FinalResponse
 from services.frame_extractor import FrameExtractor
 from services.entity_resolver import EntityResolver
 from services.concept_resolver import ConceptResolver
@@ -29,6 +31,8 @@ from models.capabilities import (
     EventAnalysisInputs
 )
 
+logger = logging.getLogger(__name__)
+
 
 class WorkflowNodes:
     """Container for all workflow nodes"""
@@ -41,12 +45,10 @@ class WorkflowNodes:
         )
         self.concept_resolver = ConceptResolver()
         
-        # Initialize capabilities
-        self.capabilities = {
-            "chat": ChatCapability(),
-            "ticketing_data": TicketingDataCapability(),
-            "event_analysis": EventAnalysisCapability()
-        }
+        # Initialize capabilities dynamically
+        from capabilities.registry import get_registry
+        registry = get_registry()
+        self.capabilities = registry.get_all_instances()
         
         # Initialize LLM for orchestration
         if os.getenv("ANTHROPIC_API_KEY"):
@@ -130,26 +132,13 @@ class WorkflowNodes:
                     candidates = cross_candidates
             
             # Add to resolved entities
-            from models.frame import ResolvedEntity, EntityCandidate as PydanticEntityCandidate
-            
-            # Convert dataclass candidates to Pydantic models
-            pydantic_candidates = []
-            for candidate in candidates:
-                pydantic_candidate = PydanticEntityCandidate(
-                    entity_type=candidate.entity_type,
-                    id=candidate.id,
-                    name=candidate.name,
-                    score=candidate.score,
-                    disambiguation=candidate.disambiguation,
-                    data=candidate.metadata
-                )
-                pydantic_candidates.append(pydantic_candidate)
+            from models.frame import ResolvedEntity
             
             resolved = ResolvedEntity(
                 id=entity.id,
                 text=entity.text,
                 type=entity.type,
-                candidates=pydantic_candidates
+                candidates=candidates  # Already Pydantic models
             )
             frame.resolved_entities.append(resolved)
         
@@ -175,33 +164,42 @@ class WorkflowNodes:
         decision = await self._get_orchestration_decision(context)
         
         # Handle decision
-        if decision["action"] == "complete":
+        if decision.action == "complete":
             # Done - format final response
-            state.core.final_response = decision.get("response", {})
+            if isinstance(decision.response, dict):
+                # Convert dict to FinalResponse
+                state.core.final_response = FinalResponse(
+                    message=decision.response.get("message", "Task completed"),
+                    data_source=decision.response.get("data_source"),
+                    insights=decision.response.get("insights", []),
+                    recommendations=decision.response.get("recommendations", [])
+                )
+            else:
+                state.core.final_response = decision.response
             state.core.status = "complete"
             state.routing.next_node = "end"
         else:
             # Execute capability
-            capability_name = decision["capability"]
-            task_inputs = decision.get("inputs", {})
+            capability_name = decision.capability
+            task_inputs = decision.inputs or {}
             
             # Create task with proper ID
             task_id = f"t{len(state.execution.completed_tasks)+1}"
             
-            # Store current task in execution state
-            from models.state import TaskResult
-            current_task = {
-                "id": task_id,
-                "capability": capability_name,
-                "inputs": task_inputs
-            }
+            # Create Task model
+            current_task = Task(
+                id=task_id,
+                capability=capability_name,
+                inputs=task_inputs
+            )
             
             # Add to state metadata for the execution node
             state.add_message("system", f"Executing task {task_id}: {capability_name}", 
-                            metadata={"current_task": current_task})
+                            metadata={"current_task": current_task.model_dump()})
             
-            # Route to capability execution
-            state.routing.next_node = f"execute_{capability_name}"
+            # Route to generic capability execution
+            state.routing.next_node = "execute_capability"
+            state.routing.capability_to_execute = capability_name
         
         # Increment loop counter
         state.increment_loop()
@@ -417,6 +415,67 @@ class WorkflowNodes:
         
         return state
     
+    async def execute_capability_node(self, state: AgentState) -> AgentState:
+        """Generic capability execution - works with any capability"""
+        
+        # Get capability to execute
+        capability_name = state.routing.capability_to_execute
+        if not capability_name or capability_name not in self.capabilities:
+            state.add_message("system", f"Invalid capability: {capability_name}")
+            state.routing.next_node = "orchestrate"
+            return state
+        
+        # Get current task from last system message
+        task = None
+        for msg in reversed(state.core.messages):
+            if msg.role == "system" and "current_task" in msg.metadata:
+                task = msg.metadata["current_task"]
+                break
+        
+        if not task:
+            state.routing.next_node = "orchestrate"
+            return state
+        
+        capability = self.capabilities[capability_name]
+        
+        try:
+            # Let capability build its own inputs
+            inputs = capability.build_inputs(task, state)
+            
+            # Execute capability
+            result = await capability.execute(inputs)
+            
+            # Store result
+            task_result = TaskResult(
+                task_id=task["id"],
+                capability=capability_name,
+                inputs=task["inputs"],
+                result=result.model_dump() if hasattr(result, 'model_dump') else result,
+                success=getattr(result, 'success', True)
+            )
+            state.execution.add_task_result(task_result)
+            
+            # Add summary to messages
+            summary = capability.summarize_result(result)
+            state.add_message("system", summary)
+            
+        except Exception as e:
+            # Handle errors
+            task_result = TaskResult(
+                task_id=task["id"],
+                capability=capability_name,
+                inputs=task["inputs"],
+                result={},
+                success=False,
+                error_message=str(e)
+            )
+            state.execution.add_task_result(task_result)
+            state.add_message("system", f"{capability_name} execution failed: {str(e)}")
+        
+        # Always route back to orchestrate
+        state.routing.next_node = "orchestrate"
+        return state
+    
     def _build_orchestration_context(self, state: AgentState) -> str:
         """Build context for orchestration decision"""
         
@@ -471,32 +530,8 @@ Semantic Understanding:
                 task_summaries.append(f"- {tid}: {result.capability} (success={result.success})")
             completed_context = f"\nCompleted Tasks:\n" + "\n".join(task_summaries)
         
-        # Available capabilities with detailed descriptions
-        capabilities_context = """
-Available Capabilities:
-
-1. chat: Emotional support and conversation
-   - Provides empathetic responses
-   - Handles general questions about theater industry
-   - Offers encouragement and perspective
-   
-2. ticketing_data: Access comprehensive ticketing metrics
-   - Request what you need: revenue, attendance, ticket sales, average prices
-   - Group by: shows, venues, time periods, cities
-   - Filter by: Use entity IDs from resolved entities when available
-     Example: If "Chicago" resolves to ID "prod_123", use that ID in filters
-   - The capability handles all Cube.js translation
-   
-3. event_analysis: Analyze performance and identify insights
-   - Trend analysis over time periods
-   - Compare multiple shows/venues
-   - Identify top/bottom performers
-   - Find patterns in sales data
-   - Audience segmentation analysis
-   - Performance benchmarking
-
-Note: event_analysis typically needs data from ticketing_data first
-"""
+        # Build capabilities context dynamically from loaded capabilities
+        capabilities_context = self._build_capabilities_context()
         
         return f"""
 User Query: {state.core.query}
@@ -525,7 +560,39 @@ Respond with JSON:
 }}
 """
     
-    async def _get_orchestration_decision(self, context: str) -> Dict[str, Any]:
+    def _build_capabilities_context(self) -> str:
+        """Build capabilities context dynamically from loaded capabilities"""
+        
+        capabilities_text = "\n\nAvailable Capabilities:"
+        
+        for name, capability in self.capabilities.items():
+            # Get capability description using its describe() method
+            description = capability.describe()
+            
+            # Format capability information
+            capabilities_text += f"\n\n- {description.name}: {description.purpose}"
+            
+            # Add inputs if specified
+            if description.inputs:
+                capabilities_text += "\n  Inputs:"
+                for field, desc in description.inputs.items():
+                    capabilities_text += f"\n    * {field}: {desc}"
+            
+            # Add outputs if specified
+            if description.outputs:
+                capabilities_text += "\n  Outputs:"
+                for field, desc in description.outputs.items():
+                    capabilities_text += f"\n    * {field}: {desc}"
+            
+            # Add examples if provided
+            if description.examples:
+                capabilities_text += "\n  Examples:"
+                for example in description.examples:
+                    capabilities_text += f"\n    - {example}"
+        
+        return capabilities_text
+    
+    async def _get_orchestration_decision(self, context: str) -> OrchestrationDecision:
         """Get orchestration decision from LLM"""
         
         messages = [
@@ -534,21 +601,11 @@ Respond with JSON:
 Key principles:
 1. Execute ONE task at a time - see results before next decision
 2. Use semantic frame understanding (entities, concepts) to guide decisions
-3. For emotional concepts (overwhelmed, stressed), use chat first
-4. For metric concepts (revenue, attendance), use ticketing_data
-5. For analysis concepts (trends, comparison, patterns), use event_analysis AFTER getting data
-
-Capability relationships:
-- chat: Independent, for emotional support or general questions
-- ticketing_data: Fetches raw metrics. IMPORTANT - use exact field names:
-  * Measures: ticket_line_items.amount, ticket_line_items.quantity
-  * Dimensions: productions.name, ticket_line_items.venue_id, ticket_line_items.city, ticket_line_items.created_at_local
-  * Filters: PREFER ID-based filtering when entities are resolved:
-    - For productions: use {"member": "productions.id", "operator": "equals", "values": ["entity_id"]}
-    - For venues: use {"member": "ticket_line_items.venue_id", "operator": "equals", "values": ["entity_id"]}
-    - For cities: use {"member": "ticket_line_items.city", "operator": "equals", "values": ["CITY_NAME"]}
-    - Only fall back to name-based filtering if no ID is available
-- event_analysis: Usually needs ticketing_data results first (can reference previous task results)
+3. Route by intent:
+   - Emotional support (overwhelmed, stressed, confused) → chat
+   - Analysis requests (trends, patterns, compare, analyze, insights) → event_analysis
+   - Data requests (show me, get, fetch, revenue for, attendance of) → ticketing_data
+4. event_analysis will request data from ticketing_data if needed
 
 When ambiguous entities exist, you can:
 - Select the most likely candidate based on context
@@ -564,16 +621,17 @@ When ambiguous entities exist, you can:
             import re
             json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
-        except:
-            pass
+                decision_data = json.loads(json_match.group())
+                return OrchestrationDecision(**decision_data)
+        except Exception as e:
+            logger.warning(f"Failed to parse orchestration decision: {e}")
         
         # Default to chat if parsing fails
-        return {
-            "action": "execute",
-            "capability": "chat",
-            "inputs": {}
-        }
+        return OrchestrationDecision(
+            action="execute",
+            capability="chat",
+            inputs={}
+        )
     
     def _detect_emotional_context(self, frame: Optional[Frame]) -> EmotionalContext:
         """Detect emotional context from frame"""

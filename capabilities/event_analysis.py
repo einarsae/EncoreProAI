@@ -22,7 +22,7 @@ from langchain.schema import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from capabilities.base import BaseCapability, CapabilityDescription
-from models.capabilities import EventAnalysisInputs, EventAnalysisResult
+from models.capabilities import EventAnalysisInputs, EventAnalysisResult, DataPoint
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ class EventAnalysisCapability(BaseCapability):
         return CapabilityDescription(
             name="event_analysis",
             purpose="Analyze ticketing data to identify trends, patterns, anomalies, and provide actionable insights. Can progressively request more data to deepen analysis.",
+            category="analysis",
             inputs={
                 "analysis_request": "What insights or analysis you need",
                 "data": "Optional: Pre-fetched data to analyze",
@@ -73,6 +74,32 @@ class EventAnalysisCapability(BaseCapability):
                 "Which shows are underperforming?"
             ]
         )
+    
+    def build_inputs(self, task: Dict[str, Any], state) -> EventAnalysisInputs:
+        """Build EventAnalysisInputs from task and state"""
+        # Get task inputs
+        task_inputs = task.get("inputs", {})
+        
+        return EventAnalysisInputs(
+            session_id=state.core.session_id,
+            tenant_id=state.core.tenant_id,
+            user_id=state.core.user_id,
+            analysis_request=task_inputs.get("description", state.core.query),
+            data=task_inputs.get("data"),
+            entities=task_inputs.get("entities", []),
+            time_context=task_inputs.get("time_context")
+        )
+    
+    def summarize_result(self, result: EventAnalysisResult) -> str:
+        """Summarize analysis result"""
+        if result.summary:
+            return f"Analysis complete: {result.summary}"
+        elif result.insights:
+            return f"Generated {len(result.insights)} insights"
+        elif result.analysis_complete:
+            return "Analysis completed"
+        else:
+            return "Analysis in progress - need more data"
     
     async def execute(self, inputs: EventAnalysisInputs) -> EventAnalysisResult:
         """Execute analysis - simple MVP version"""
@@ -218,33 +245,24 @@ class EventAnalysisCapability(BaseCapability):
                 }
             )
     
-    def _format_data_for_analysis(self, data: Any) -> str:
+    def _format_data_for_analysis(self, data: List[DataPoint]) -> str:
         """Format data into readable summary for LLM"""
         
         if not data:
             return "No data provided"
         
-        # Handle different data formats
-        if isinstance(data, list):
-            # List of DataPoints
-            lines = ["Data points:"]
-            for i, point in enumerate(data[:20]):  # First 20 points
-                if hasattr(point, 'dimensions') and hasattr(point, 'measures'):
-                    dim_str = ", ".join([f"{k}: {v}" for k, v in point.dimensions.items()])
-                    measure_str = ", ".join([f"{k}: {v}" for k, v in point.measures.items()])
-                    lines.append(f"{i+1}. {dim_str} → {measure_str}")
-                else:
-                    lines.append(f"{i+1}. {str(point)}")
-            
-            if len(data) > 20:
-                lines.append(f"... and {len(data) - 20} more rows")
-            
-            return "\n".join(lines)
+        # Expect List[DataPoint] from TicketingDataCapability
+        if not isinstance(data, list):
+            raise TypeError(f"Expected List[DataPoint], got {type(data)}")
         
-        elif isinstance(data, dict):
-            # Dictionary format
-            return str(data)
+        lines = ["Data points:"]
+        for i, point in enumerate(data[:20]):  # First 20 points
+            # DataPoint must have dimensions and measures attributes
+            dim_str = ", ".join([f"{k}: {v}" for k, v in point.dimensions.items()])
+            measure_str = ", ".join([f"{k}: {v}" for k, v in point.measures.items()])
+            lines.append(f"{i+1}. {dim_str} → {measure_str}")
         
-        else:
-            # Unknown format
-            return str(data)
+        if len(data) > 20:
+            lines.append(f"... and {len(data) - 20} more rows")
+        
+        return "\n".join(lines)

@@ -26,9 +26,7 @@ def create_workflow():
     workflow.add_node("extract_frames", nodes.extract_frames_node)
     workflow.add_node("resolve_entities", nodes.resolve_entities_node)
     workflow.add_node("orchestrate", nodes.orchestrate_node)
-    workflow.add_node("execute_chat", nodes.execute_chat_node)
-    workflow.add_node("execute_ticketing_data", nodes.execute_ticketing_data_node)
-    workflow.add_node("execute_event_analysis", nodes.execute_event_analysis_node)
+    workflow.add_node("execute_capability", nodes.execute_capability_node)
     
     # Define routing function
     def route_by_next_node(state: AgentState) -> str:
@@ -45,9 +43,7 @@ def create_workflow():
     workflow.add_conditional_edges("extract_frames", route_by_next_node)
     workflow.add_conditional_edges("resolve_entities", route_by_next_node)
     workflow.add_conditional_edges("orchestrate", route_by_next_node)
-    workflow.add_conditional_edges("execute_chat", route_by_next_node)
-    workflow.add_conditional_edges("execute_ticketing_data", route_by_next_node)
-    workflow.add_conditional_edges("execute_event_analysis", route_by_next_node)
+    workflow.add_conditional_edges("execute_capability", route_by_next_node)
     
     # Set entry point
     workflow.set_entry_point("extract_frames")
@@ -101,7 +97,7 @@ async def process_query(
             core = final_state_dict['core']
             return {
                 "success": core.status == "complete",
-                "response": core.final_response,
+                "response": core.final_response.model_dump() if core.final_response else None,
                 "messages": [msg.model_dump() for msg in core.messages] if hasattr(core, 'messages') else [],
                 "debug": final_state_dict.get('debug').model_dump() if final_state_dict.get('debug') else None
             }
