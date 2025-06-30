@@ -307,6 +307,13 @@ Decision making:
 - Choose the capability that best matches the user's intent
 - Let capabilities that need other data request it themselves
 
+Input format notes:
+- For data queries, use the format shown in the capability's input descriptions
+- filters must be a list: [{"member": "field", "operator": "equals", "values": ["value"]}]
+- measures and dimensions must be lists: ["field1", "field2"]
+- When filtering by resolved entities, use the ID from "Resolved Entities" section
+- For production filters, use {"member": "productions.id", "operator": "equals", "values": ["ID_FROM_RESOLVED_ENTITIES"]}
+
 Remember: Each capability describes what it does. Use those descriptions to make routing decisions."""),
             HumanMessage(content=context)
         ]

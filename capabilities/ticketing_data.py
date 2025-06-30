@@ -76,16 +76,16 @@ class TicketingDataCapability(BaseCapability):
             purpose="Retrieve ticketing data: revenue, attendance, and sales metrics by production, venue, time period, and other dimensions. Can handle multiple queries in one request - different time periods, separate productions, or any combination of data needs.",
             category="data",
             inputs={
-                "query_request": "Natural language description of what data you need",
-                "measures": "Revenue (ticket_line_items.amount) or attendance (ticket_line_items.quantity)",
-                "dimensions": "Group by: productions.name, venue, time, location, sales channels",
-                "filters": "Filter by entities (use IDs when available), time ranges, or other criteria",
+                "description": "Natural language description of what data you need (required)",
+                "measures": "List of measures like ['ticket_line_items.amount'] for revenue or ['ticket_line_items.quantity'] for attendance",
+                "dimensions": "List of dimensions like ['productions.name'] to group by",
+                "filters": "List of filter objects: [{'member': 'productions.id', 'operator': 'equals', 'values': ['prod_id']}]",
                 "time_context": "Time period like 'November 2024', 'Q1 2024', '2024'",
                 "time_comparison_type": "Optional: year_over_year, month_over_month, etc.",
                 "time_granularity": "Optional: day, week, month, quarter, year",
                 "entities": "Resolved entities with IDs from orchestrator",
-                "limit": "Optional: max rows to return",
-                "order": "Optional: sort like {\"ticket_line_items.amount\": \"desc\"}"
+                "limit": "Optional: max rows to return (default 50)",
+                "order": "Optional: sort object like {'ticket_line_items.amount': 'desc'}"
             },
             outputs={
                 "data": "Requested data points",
@@ -171,10 +171,17 @@ class TicketingDataCapability(BaseCapability):
             context["data_points"] = []
             for dp in result.data:
                 point = {}
-                if dp.measures:
-                    point["measures"] = dp.measures
-                if dp.dimensions:
-                    point["dimensions"] = dp.dimensions
+                # Handle both dict and DataPoint objects
+                if isinstance(dp, dict):
+                    if "measures" in dp:
+                        point["measures"] = dp["measures"]
+                    if "dimensions" in dp:
+                        point["dimensions"] = dp["dimensions"]
+                else:
+                    if hasattr(dp, "measures") and dp.measures:
+                        point["measures"] = dp.measures
+                    if hasattr(dp, "dimensions") and dp.dimensions:
+                        point["dimensions"] = dp.dimensions
                 context["data_points"].append(point)
                 
             # Add query description if available
@@ -189,10 +196,17 @@ class TicketingDataCapability(BaseCapability):
             context["sample_data"] = []
             for dp in result.data[:3]:  # First 3 as examples
                 point = {}
-                if dp.measures:
-                    point["measures"] = dp.measures
-                if dp.dimensions:
-                    point["dimensions"] = dp.dimensions
+                # Handle both dict and DataPoint objects
+                if isinstance(dp, dict):
+                    if "measures" in dp:
+                        point["measures"] = dp["measures"]
+                    if "dimensions" in dp:
+                        point["dimensions"] = dp["dimensions"]
+                else:
+                    if hasattr(dp, "measures") and dp.measures:
+                        point["measures"] = dp.measures
+                    if hasattr(dp, "dimensions") and dp.dimensions:
+                        point["dimensions"] = dp.dimensions
                 context["sample_data"].append(point)
                 
             # Add metadata about the full dataset
