@@ -104,8 +104,9 @@ class ConceptResolver:
         
         concept_lower = concept_text.lower().strip()
         
-        # Try mem0 first if available
-        if self.memory:
+        # TEMPORARILY DISABLED: mem0 concept resolution for performance
+        # TODO: Re-enable with optimization (single query, caching, async)
+        if False:  # self.memory:
             try:
                 # Search for related memories - try multiple search strategies
                 search_queries = [

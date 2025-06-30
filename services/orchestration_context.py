@@ -31,14 +31,20 @@ class OrchestrationContextBuilder:
     INSTRUCTIONS_TEMPLATE = """
 Based on the semantic understanding and completed tasks, what is the NEXT SINGLE task?
 
+CRITICAL DECISION RULES:
+1. If you have SPECIFIC DATA that answers the user's question → COMPLETE immediately
+2. If completed tasks show actual numbers/values (e.g., "revenue data: $50,000") → COMPLETE with that answer
+3. If you already retrieved the same data type multiple times → COMPLETE with available data
+4. Only execute MORE tasks if you genuinely need DIFFERENT data
+
 Before deciding, ask yourself:
-- Do I have enough data to complete this analysis?
-- Would additional data from a different angle help provide better insights?
-- Can I answer the user's question with what I have, or do I need more information?
+- Do I have the specific data needed to answer the user's question?
+- Have I already retrieved this type of data successfully?
+- Am I repeating the same capability unnecessarily?
 
 Options:
-1. Execute a capability (specify which one and inputs)
-2. Complete with final response
+1. Execute a capability (specify which one and inputs) - ONLY if you need NEW/DIFFERENT data
+2. Complete with final response - if you have the data to answer the question
 
 Respond with JSON:
 {
@@ -48,8 +54,10 @@ Respond with JSON:
     "response": "Your final answer to the user" (if complete)
 }
 
-For simple data questions, you can complete immediately after getting the data.
-Example: "What is the total revenue for Gatsby?" - once you have the revenue number, complete with that answer."""
+EXAMPLES OF WHEN TO COMPLETE:
+- "What is total revenue for Gatsby?" + completed task shows "revenue data: $50,000" → COMPLETE
+- "How many tickets sold?" + completed task shows "attendance data: 1,200 tickets" → COMPLETE
+- Any question where you have the specific data/number requested → COMPLETE immediately"""
     
     def __init__(self, capabilities: Dict[str, BaseCapability]):
         """
@@ -178,9 +186,96 @@ Example: "What is the total revenue for Gatsby?" - once you have the revenue num
         
         task_summaries = []
         for tid, result in state.execution.completed_tasks.items():
-            task_summaries.append(f"- {tid}: {result.capability} (success={result.success})")
+            summary = f"- {tid}: {result.capability} (success={result.success})"
+            
+            # Add result summary if available and successful
+            if result.success and result.result:
+                # Get a meaningful summary of the result
+                result_summary = self._summarize_task_result(result.result)
+                if result_summary:
+                    summary += f"\n  Result: {result_summary}"
+            elif not result.success and hasattr(result, 'error_message') and result.error_message:
+                summary += f"\n  Error: {result.error_message}"
+                
+            task_summaries.append(summary)
         
         return "\nCompleted Tasks:\n" + "\n".join(task_summaries)
+    
+    def _summarize_task_result(self, result: Any) -> str:
+        """Summarize task result for orchestrator context"""
+        if not result:
+            return ""
+            
+        try:
+            # Handle different result types
+            if isinstance(result, dict):
+                # Look for common result fields
+                if "data" in result and result["data"]:
+                    data = result["data"]
+                    if isinstance(data, list) and len(data) > 0:
+                        # Try to extract meaningful info from the first record
+                        first_record = data[0]
+                        if isinstance(first_record, dict):
+                            # Check if it has measures structure (Cube.js format)
+                            if "measures" in first_record and isinstance(first_record["measures"], dict):
+                                measures = first_record["measures"]
+                                # Look for revenue/amount fields in measures
+                                if "ticket_line_items.amount" in measures:
+                                    amount = measures["ticket_line_items.amount"]
+                                    try:
+                                        amount_num = float(amount)
+                                        return f"Retrieved revenue data: ${amount_num:,.2f}"
+                                    except (ValueError, TypeError):
+                                        return f"Retrieved revenue data: {amount}"
+                                elif "ticket_line_items.quantity" in measures:
+                                    qty = measures["ticket_line_items.quantity"]
+                                    try:
+                                        qty_num = int(float(qty))
+                                        return f"Retrieved attendance data: {qty_num:,} tickets"
+                                    except (ValueError, TypeError):
+                                        return f"Retrieved attendance data: {qty} tickets"
+                                else:
+                                    # Show which measures were retrieved
+                                    measure_names = list(measures.keys())
+                                    return f"Retrieved {len(data)} records with measures: {', '.join(measure_names)}"
+                            # Check for direct fields (flat structure)
+                            elif "ticket_line_items.amount" in first_record:
+                                amount = first_record["ticket_line_items.amount"]
+                                return f"Retrieved revenue data: ${amount:,}" if isinstance(amount, (int, float)) else f"Retrieved revenue data: {amount}"
+                            elif "amount" in first_record:
+                                amount = first_record["amount"]
+                                return f"Retrieved revenue data: ${amount:,}" if isinstance(amount, (int, float)) else f"Retrieved revenue data: {amount}"
+                            elif "ticket_line_items.quantity" in first_record:
+                                qty = first_record["ticket_line_items.quantity"]
+                                return f"Retrieved attendance data: {qty:,} tickets" if isinstance(qty, (int, float)) else f"Retrieved attendance data: {qty}"
+                            else:
+                                # Generic record description
+                                fields = list(first_record.keys())[:3]
+                                return f"Retrieved {len(data)} records with fields: {', '.join(fields)}"
+                        else:
+                            return f"Retrieved {len(data)} records of data"
+                    elif isinstance(data, dict):
+                        return f"Retrieved data with {len(data)} fields"
+                    else:
+                        return f"Retrieved data: {str(data)[:100]}..."
+                elif "key_findings" in result:
+                    findings = result["key_findings"]
+                    if isinstance(findings, list) and len(findings) > 0:
+                        return f"Key findings: {'; '.join(findings[:2])}..."
+                    else:
+                        return f"Key findings: {str(findings)[:100]}..."
+                elif "query_description" in result:
+                    return f"Query: {result['query_description']}"
+                else:
+                    # Generic dict result
+                    return f"Retrieved result with {len(result)} fields: {', '.join(list(result.keys())[:3])}..."
+            else:
+                # Convert to string and truncate
+                result_str = str(result)
+                return result_str[:100] + "..." if len(result_str) > 100 else result_str
+        except Exception as e:
+            logger.warning(f"Error summarizing task result: {e}")
+            return "Result available but could not summarize"
     
     def _build_capabilities_section(self) -> str:
         """Build capabilities context dynamically"""

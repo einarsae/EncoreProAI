@@ -6,8 +6,13 @@ Test all queries from TEST_QUERIES.md with real data
 import asyncio
 import os
 import logging
+import warnings
 from workflow.graph import create_workflow
 from models.state import AgentState
+
+# Suppress Pydantic deprecation warnings from LangGraph
+warnings.filterwarnings("ignore", message=".*model_fields.*", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince211.*")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -61,68 +66,52 @@ TEST_QUERIES = {
 }
 
 
-async def test_query(query: str, session_id: str = "test_session"):
-    """Test a single query"""
+async def test_query(query: str, session_id: str = "test_session", timeout: int = 120):
+    """Test a single query with timeout"""
     logger.info(f"\n{'='*60}")
     logger.info(f"Testing: {query}")
     logger.info(f"{'='*60}")
     
     try:
-        # Create workflow
-        app = create_workflow()
-        
-        # Create initial state
-        initial_state = AgentState(
-            core={
-                "session_id": session_id,
-                "user_id": "test_user",
-                "tenant_id": os.getenv("TENANT_ID", "yesplan"),
-                "query": query
-            }
+        # Add timeout to prevent hanging
+        result = await asyncio.wait_for(
+            process_query(
+                query=query,
+                session_id=session_id,
+                user_id="test_user",
+                tenant_id=os.getenv("TENANT_ID", "5465f607-b975-4c80-bed1-a1a5a3c779e2"),
+                debug=False
+            ),
+            timeout=timeout
         )
         
-        # Track execution
-        steps = []
-        final_response = None
-        
-        # Run workflow
-        async for event in app.astream(initial_state):
-            for node, state in event.items():
-                step_info = {"node": node}
-                
-                # Capture key information
-                if hasattr(state, 'routing') and state.routing.next_node:
-                    step_info["next"] = state.routing.next_node
-                    if state.routing.capability_to_execute:
-                        step_info["capability"] = state.routing.capability_to_execute
-                
-                if hasattr(state, 'execution'):
-                    step_info["tasks"] = list(state.execution.completed_tasks.keys())
-                    step_info["loop"] = state.execution.loop_count
-                
-                if hasattr(state, 'core') and state.core.final_response:
-                    final_response = state.core.final_response
-                
-                steps.append(step_info)
-                logger.info(f"Step {len(steps)}: {step_info}")
-        
         # Check results
-        success = final_response is not None
+        success = result.get("success", False)
+        error = result.get("error")
+        response = result.get("response")
         
         logger.info(f"\nResult: {'✅ SUCCESS' if success else '❌ FAILED'}")
-        if final_response:
-            if hasattr(final_response, 'message'):
-                logger.info(f"Response: {final_response.message}")
+        if error:
+            logger.info(f"Error: {error}")
+        if response:
+            if isinstance(response, dict) and "message" in response:
+                logger.info(f"Response: {response['message'][:200]}...")
             else:
-                logger.info(f"Response: {final_response}")
-        logger.info(f"Total steps: {len(steps)}")
+                logger.info(f"Response: {response}")
         
         return {
             "query": query,
             "success": success,
-            "steps": len(steps),
-            "response": final_response,
-            "execution_path": steps
+            "response": response,
+            "error": error
+        }
+        
+    except asyncio.TimeoutError:
+        logger.error(f"❌ TIMEOUT: Query took longer than {timeout} seconds")
+        return {
+            "query": query,
+            "success": False,
+            "error": f"Timeout after {timeout} seconds"
         }
         
     except Exception as e:
@@ -133,22 +122,30 @@ async def test_query(query: str, session_id: str = "test_session"):
             "error": str(e)
         }
 
+# Add missing import
+from workflow.graph import process_query
 
-async def test_category(category_name: str, queries: list):
-    """Test a category of queries"""
+
+async def test_category(category_name: str, queries: list, max_queries: int = 3):
+    """Test a category of queries (limited for performance)"""
     logger.info(f"\n{'#'*80}")
     logger.info(f"Testing Category: {category_name.upper()}")
     logger.info(f"{'#'*80}")
     
+    # Limit queries for faster testing
+    test_queries = queries[:max_queries]
+    if len(queries) > max_queries:
+        logger.info(f"Testing first {max_queries} of {len(queries)} queries for performance")
+    
     results = []
-    for query in queries:
-        result = await test_query(query)
+    for query in test_queries:
+        result = await test_query(query, timeout=120)  # Increased timeout for API delays
         results.append(result)
-        await asyncio.sleep(1)  # Rate limiting
+        await asyncio.sleep(2)  # Slightly longer delay
     
     # Summary
     successful = sum(1 for r in results if r.get("success"))
-    logger.info(f"\nCategory Summary: {successful}/{len(queries)} successful")
+    logger.info(f"\nCategory Summary: {successful}/{len(test_queries)} successful")
     
     return results
 

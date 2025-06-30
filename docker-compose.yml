@@ -37,6 +37,10 @@ services:
       - LLM_TIER_FAST=${LLM_TIER_FAST}
       - DEFAULT_TENANT_ID=${DEFAULT_TENANT_ID}
       - TENANT_ID=${DEFAULT_TENANT_ID:-test_tenant}
+      # LangSmith tracing
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-true}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-EncoreProAI-Debug}
     depends_on:
       postgres:
         condition: service_healthy

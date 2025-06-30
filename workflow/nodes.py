@@ -55,15 +55,22 @@ class WorkflowNodes:
         # Initialize response generator
         self.response_generator = ResponseGenerator()
         
-        # Initialize LLM for orchestration
-        if os.getenv("ANTHROPIC_API_KEY"):
+        # Initialize LLM for orchestration (prioritize fast OpenAI models for speed)
+        if os.getenv("OPENAI_API_KEY"):
+            self.orchestrator_llm = ChatOpenAI(
+                model="gpt-4.1-mini-2025-04-14",  # Use real model name directly
+                temperature=self.ORCHESTRATOR_TEMPERATURE
+            )
+        elif os.getenv("ANTHROPIC_API_KEY"):
+            # Fallback to Claude Haiku (faster than Sonnet)
             self.orchestrator_llm = ChatAnthropic(
-                model=os.getenv("LLM_CHAT_STANDARD", "claude-sonnet-4-20250514"),
-                temperature=self.ORCHESTRATOR_TEMPERATURE  # Lower for more consistent orchestration
+                model=os.getenv("LLM_CHAT_FAST", "claude-3-5-haiku-20241022"),
+                temperature=self.ORCHESTRATOR_TEMPERATURE
             )
         else:
+            # Default fallback
             self.orchestrator_llm = ChatOpenAI(
-                model=os.getenv("LLM_TIER_STANDARD", "gpt-4o-mini"),
+                model="gpt-4.1-mini-2025-04-14",
                 temperature=self.ORCHESTRATOR_TEMPERATURE
             )
     
