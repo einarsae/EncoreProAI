@@ -6,7 +6,7 @@ Each capability is self-contained and handles its own business logic.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, TYPE_CHECKING
+from typing import Dict, List, Any, TYPE_CHECKING, Optional
 from pydantic import BaseModel
 
 from models.capabilities import CapabilityInputs, CapabilityResult
@@ -14,6 +14,13 @@ from models.capabilities import CapabilityInputs, CapabilityResult
 if TYPE_CHECKING:
     from models.state import AgentState
 
+
+class ResponseContext(BaseModel):
+    """Context for formatting responses"""
+    entity_name: Optional[str] = None
+    query: str
+    task_id: str
+    
 
 class CapabilityDescription(BaseModel):
     """Description of a capability for LLM understanding"""
@@ -23,6 +30,7 @@ class CapabilityDescription(BaseModel):
     inputs: Dict[str, Any]  # Field descriptions, not just strings
     outputs: Dict[str, Any]  # Output descriptions, not just strings
     examples: List[str]
+    routing_hints: Optional[Dict[str, List[str]]] = None  # Keywords/concepts for routing
 
 
 class BaseCapability(ABC):
@@ -86,3 +94,27 @@ class BaseCapability(ABC):
             return f"{self.get_name()} {status}"
         
         return f"{self.get_name()} completed"
+    
+    def prepare_response_context(self, result: CapabilityResult) -> Dict[str, Any]:
+        """
+        Prepare condensed context for LLM response generation.
+        Override this method to provide capability-specific context.
+        
+        Args:
+            result: The capability result to prepare context from
+            
+        Returns:
+            Dictionary with key information for response generation
+            without overwhelming the LLM with raw data
+        """
+        # Default implementation - just provide summary
+        context = {
+            "summary": self.summarize_result(result),
+            "success": result.success if hasattr(result, 'success') else True,
+        }
+        
+        # Add error info if present
+        if hasattr(result, 'error_message') and result.error_message:
+            context["error"] = result.error_message
+            
+        return context

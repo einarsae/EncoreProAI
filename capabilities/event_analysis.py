@@ -92,9 +92,7 @@ class EventAnalysisCapability(BaseCapability):
     
     def summarize_result(self, result: EventAnalysisResult) -> str:
         """Summarize analysis result"""
-        if result.summary:
-            return f"Analysis complete: {result.summary}"
-        elif result.insights:
+        if result.insights:
             return f"Generated {len(result.insights)} insights"
         elif result.analysis_complete:
             return "Analysis completed"

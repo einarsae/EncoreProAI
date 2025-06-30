@@ -92,8 +92,8 @@ class Frame(BaseModel):
         # Concepts are optional - memory might not have context
         return entities_resolved
     
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "query": "What is the revenue for Chicago last month?",
                 "entities": ["Chicago"],
@@ -121,22 +121,11 @@ class Frame(BaseModel):
                 "resolved_concepts": []
             }
         }
+    }
 
 
-# Keep compatibility with EntityResolver - this is what comes FROM the resolver
-class EntityCandidate(BaseModel):
-    """A potential entity match from resolution"""
-    entity_type: str = Field(..., description="Type of entity (production, venue, etc)")
-    id: str = Field(..., description="Entity ID")
-    name: str = Field(..., description="Entity name")
-    score: float = Field(..., ge=0.0, le=1.0, description="Match score")
-    disambiguation: str = Field(..., description="Human-readable disambiguation string")
-    data: Optional[Dict[str, Any]] = Field(None, description="Additional entity data")
-    # Disambiguation fields from our database
-    sold_last_30_days: Optional[int] = None
-    first_date: Optional[datetime] = None
-    last_date: Optional[datetime] = None
-
+# Import EntityCandidate from entity_resolver instead of defining it here
+from services.entity_resolver import EntityCandidate
 
 # Forward reference resolution
 ResolvedEntity.model_rebuild()

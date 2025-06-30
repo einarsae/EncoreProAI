@@ -15,6 +15,7 @@ from capabilities.base import BaseCapability, CapabilityDescription
 from capabilities.chat import ChatCapability
 from capabilities.ticketing_data import TicketingDataCapability
 from capabilities.event_analysis import EventAnalysisCapability
+from capabilities.help import HelpCapability
 
 
 class CapabilityRegistry:
@@ -24,7 +25,8 @@ class CapabilityRegistry:
     DEFAULT_CAPABILITIES = {
         "chat": ChatCapability,
         "ticketing_data": TicketingDataCapability,
-        "event_analysis": EventAnalysisCapability
+        "event_analysis": EventAnalysisCapability,
+        "help": HelpCapability
     }
     
     # Category descriptions for user help

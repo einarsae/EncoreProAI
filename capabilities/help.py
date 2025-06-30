@@ -7,7 +7,6 @@ This is a meta-capability that helps users understand available functionality.
 from typing import Dict, Any
 from capabilities.base import BaseCapability, CapabilityDescription
 from models.capabilities import CapabilityInputs, CapabilityResult
-from capabilities.registry import get_registry
 
 
 class HelpInputs(CapabilityInputs):
@@ -64,6 +63,8 @@ class HelpCapability(BaseCapability):
     async def execute(self, inputs: HelpInputs) -> HelpResult:
         """Generate help text dynamically from registry"""
         
+        # Import here to avoid circular import
+        from capabilities.registry import get_registry
         registry = get_registry()
         
         # Get help text

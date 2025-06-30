@@ -1,0 +1,197 @@
+# Broadway Metadata Implementation Plan
+
+A detailed plan to gather, enrich, and embed structured metadata for 200–500 Broadway shows. This data will power Encore Pro AI’s similarity search, customer segmentation, content personalization, and campaign generation.
+
+---
+
+## 🎯 Goal
+
+Create a consistent, enriched metadata set for Broadway productions with the following fields:
+
+* Title, slug, opening/closing dates, preview dates
+* Cast, creative team, theatre
+* Genre, subgenre, audience type, tags
+* Description, synopsis, reception
+* News buzz, reviews, sentiment
+* Music-related metadata (albums, genres)
+* Embedding vector (OpenAI or local)
+
+---
+
+## 🧩 Key Data Sources & Access Details
+
+### 1. **Wikipedia API**
+
+* **What**: Titles, summaries, infobox data (dates, cast), critical reception, categories
+* **Access**: [https://www.mediawiki.org/wiki/API\:Main\_page](https://www.mediawiki.org/wiki/API:Main_page)
+* **How**: Use Python `wikipediaapi` or `wikipedia` package
+* **Method**:
+
+  * Search show title
+  * Parse page summary, categories, infobox
+  * Extract date info, synopsis, themes, and reception
+
+### 2. **IBDB (Internet Broadway Database)**
+
+* **What**: Official opening/closing/preview dates, theatres, cast, crew
+* **Access**: [https://www.ibdb.com](https://www.ibdb.com)
+* **How**: Scrape individual show pages (no public API)
+* **Method**:
+
+  * Use `requests` + `BeautifulSoup` to extract table data
+  * Rate-limit scraping (2–3 req/sec)
+  * Pull timeline, cast list, creative team
+
+### 3. **Playbill Vault**
+
+* **What**: Additional timeline and cast/crew detail, show run info
+* **Access**: [https://www.playbill.com/vault](https://www.playbill.com/vault)
+* **How**: Scrape HTML using `BeautifulSoup`
+* **Method**:
+
+  * Use show title or slug to construct URL
+  * Extract cast, opening/closing date, venue, notes
+
+### 4. **Spotify API (Cast Album + Tags)**
+
+* **What**: Soundtrack info, genres, mood tags, related artists
+* **Access**: [https://developer.spotify.com/documentation/web-api/](https://developer.spotify.com/documentation/web-api/)
+* **How**: Use Python `spotipy` client
+* **Method**:
+
+  * Search cast album by show name + "Original Broadway Cast"
+  * Get `genres[]`, popularity, related artists
+  * Embed top tags for tone & aesthetic profiling
+
+### 5. **News API (Buzz + Cultural Context)**
+
+* **What**: Recent news coverage, headlines, sentiment
+* **Access**: [https://newsapi.org](https://newsapi.org) or [https://newsdata.io](https://newsdata.io)
+* **How**: Use show name as keyword
+* **Method**:
+
+  * Query news API with title + "Broadway"
+  * Extract summary, date, sentiment if available
+  * Create `buzz_score` from count of relevant articles
+
+### 6. **OpenAI (Embeddings)**
+
+* **What**: Embedding vectors from show summaries
+* **Access**: [https://platform.openai.com](https://platform.openai.com)
+* **How**: Use `text-embedding-3-small`
+* **Method**:
+
+  * Create combined string: title + genre + summary + cast
+  * Call embedding API → store 1536-dim vector
+
+---
+
+## 🏗️ Data Pipeline Architecture
+
+### Phase 1: Title List Generation
+
+* Build list of 200–500 Broadway shows from:
+
+  * Wikipedia category: [https://en.wikipedia.org/wiki/Category\:Broadway\_musicals](https://en.wikipedia.org/wiki/Category:Broadway_musicals)
+  * IBDB All Shows Index: [https://www.ibdb.com/broadway-shows](https://www.ibdb.com/broadway-shows)
+  * Manual curation if needed
+
+### Phase 2: Metadata Collector Script
+
+* Write a Python script with the following steps:
+
+  1. Normalize title
+  2. Pull from Wikipedia API → `summary`, `dates`, `genre`, `categories`
+  3. Scrape IBDB → `cast`, `crew`, `venue`, `run info`
+  4. Scrape Playbill → enrich with alternate notes
+  5. Search Spotify → `genres`, `tags`, `artist popularity`
+  6. Query NewsAPI → `buzz_score`, recent headlines
+
+### Phase 3: Embed + Normalize
+
+* For each show:
+
+  * Combine all key metadata into a string prompt
+  * Embed using OpenAI
+  * Normalize fields (date formats, tag vocabularies)
+
+### Phase 4: Storage
+
+* Save to `show_metadata` table or JSON flatfiles
+* Store vectors in pgvector
+* Optionally expose via GraphQL or FastAPI endpoint
+
+---
+
+## 🧱 Technical Implementation Plan
+
+### Suggested Schema (`ShowMetadata`)
+
+Use Pydantic or SQLAlchemy for validation/storage:
+
+```python
+class ShowMetadata(BaseModel):
+    event_id: str
+    title: str
+    slug: str
+    summary: str
+    genre: str
+    subgenre: Optional[str]
+    audience_type: Optional[str]
+    opening_date: date
+    closing_date: Optional[date]
+    preview_date: Optional[date]
+    cast: List[str]
+    creative_team: List[str]
+    theatre: str
+    tags: List[str]
+    buzz_score: Optional[float]
+    spotify_album_url: Optional[str]
+    spotify_genres: List[str]
+    embedding: List[float]
+```
+
+### Data Storage
+
+* Use a Postgres table `show_metadata`
+* Add a `vector(1536)` column using pgvector extension
+* Index by `event_id`, `slug`, and `embedding` (for similarity search)
+
+### Services to Host
+
+* Metadata enrichment script (scheduled or triggered)
+* Embedding updater (incremental or batch)
+* FastAPI endpoint to retrieve enriched metadata
+* Optional: GraphQL or internal admin UI for validation/override
+
+---
+
+## 💰 Cost Estimate
+
+| Source            | Usage                  | Monthly Cost (est)          |
+| ----------------- | ---------------------- | --------------------------- |
+| Wikipedia API     | Free                   | \$0                         |
+| IBDB scraping     | Manual rate limiting   | \$0                         |
+| Playbill scraping | Manual rate limiting   | \$0                         |
+| Spotify API       | Free (rate limited)    | \$0                         |
+| NewsAPI           | Free tier (500 req/mo) | \$0–\$49                    |
+| OpenAI embeddings | \~\$0.0001/event       | \$0.05–\$0.10 for 500 shows |
+
+---
+
+## ✅ Deliverables
+
+* `show_metadata.json` or DB table with 200–500 enriched records
+* Embeddings stored in pgvector
+* Optional: chart of buzz vs genre, timeline of openings, talent graph
+* Basis for recommender, agent planner context, and campaign personalization
+
+---
+
+## 🛠 Next Steps
+
+* [ ] Create show title index (Wiki + IBDB scrape)
+* [ ] Scaffold `BroadwayMetadataAgent` class (per show)
+* [ ] Run batch on 20 sample shows
+* [ ] Evaluate vector quality + reasoning performance
+* [ ] Scale to 500+ and hook into orchestration context

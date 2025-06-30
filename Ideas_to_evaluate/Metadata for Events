@@ -1,0 +1,113 @@
+# Metadata Strategy for Events and Customers in Encore Pro AI
+
+This strategy outlines how to create rich, consistent, and actionable metadata across **events** and **customers** to power segmentation, personalization, embeddings, and agentic workflows. It includes recommended fields, enrichment sources, estimated cost, and implementation methods.
+
+---
+
+## 🎭 Event Metadata Strategy
+
+### 🎯 Goal
+
+Ensure every event has rich, consistent metadata that supports:
+
+* AI embeddings and similarity search
+* Behavioral segmentation and trend analysis
+* Personalization and targeting in outbound messaging
+
+### 📋 Core Metadata Fields (Structured)
+
+| Field                 | Description                              |
+| --------------------- | ---------------------------------------- |
+| `event_id`            | Unique internal ID                       |
+| `title`, `subtitle`   | Main and secondary titles                |
+| `description`         | Full marketing copy or summary           |
+| `tags[]`              | List of descriptive tags                 |
+| `genre` / `subgenre`  | Controlled vocabulary                    |
+| `audience_type`       | e.g. family, adult, teen                 |
+| `status`              | Active, cancelled, rescheduled           |
+| `dates[]`             | Opening/closing dates, performance dates |
+| `venue`, `location`   | For local enrichment and clustering      |
+| `pricing_tiers[]`     | Label and price for each tier            |
+| `accessibility_flags` | e.g. ADA, ASL available                  |
+
+### 🧠 Enriched Metadata Fields
+
+| Field                   | Source                          | Purpose                                | Cost                     |
+| ----------------------- | ------------------------------- | -------------------------------------- | ------------------------ |
+| `embedding_vector`      | OpenAI or Mistral (LLM)         | Power similarity queries               | \~\$0.0001/event         |
+| `local_weather_profile` | Open-Meteo, OpenWeather         | Performance context, behavior modeling | Free to \$50/mo          |
+| `buzz_score`            | NewsAPI, NewsData.io, Bing News | Estimate event visibility in media     | Free tier or \$50–100/mo |
+| `live_event_similarity` | JamBase API                     | Contextual relevance to other events   | Free tier for dev use    |
+| `spotify_artist_links`  | Spotify Web API                 | Genre/artist enrichment                | Free (rate limited)      |
+
+### 🛠️ Implementation
+
+* Store in `event_metadata` table or service
+* Use Pydantic for validation and schema enforcement
+* Enrichment agent pulls on event creation and refreshes weekly
+* Store vector in pgvector for similarity search
+
+---
+
+## 👤 Customer Metadata Strategy
+
+### 🎯 Goal
+
+Maintain deep, structured customer metadata to enable:
+
+* Smart segmentation
+* Personalization and campaign targeting
+* Embedding for similarity, prediction, and cohort modeling
+
+### 📋 Core Metadata Fields
+
+| Field                             | Description                                       |
+| --------------------------------- | ------------------------------------------------- |
+| `customer_id`                     | Unique internal ID                                |
+| `name`, `email`, `phone`          | Contact details                                   |
+| `location`                        | City/state, optional geolocation                  |
+| `tags[]`                          | Segmentation tags (e.g. major\_donor, opera\_fan) |
+| `accessibility_needs`             | True/false or list of needs                       |
+| `preferred_channel`               | Email, SMS, app                                   |
+| `donation_total`, `last_donation` | Cumulative and recency                            |
+| `event_attendance[]`              | Event IDs attended                                |
+| `avg_spend_per_event`             | Behavioral spend profile                          |
+| `lead_time_avg`                   | Days before event purchase                        |
+
+### 🧠 Enriched Metadata Fields
+
+| Field                      | Source                            | Purpose                                | Cost                     |
+| -------------------------- | --------------------------------- | -------------------------------------- | ------------------------ |
+| `embedding_vector`         | OpenAI or Mistral                 | Similarity search, behavioral modeling | \~\$0.0001/customer      |
+| `spotify_listening_tags`   | Spotify Web API (user permission) | Build genre/aesthetic profile          | Free (rate limited)      |
+| `news_interest_tags`       | NewsAPI, NYT API                  | Map to topical trends                  | Free tier or \$50–100/mo |
+| `weather_resilience_score` | OpenWeather or Visual Crossing    | Behavior under weather variance        | Free–\$50/mo             |
+| `enriched_demographics`    | Clearbit Free, People Data Labs   | Income, job title, etc.                | Free tier or \$20–100/mo |
+
+### 🛠️ Implementation
+
+* Store in `customer_profile` table or service
+* Use nightly ETL or trigger-based enrichment jobs
+* Update embeddings weekly or upon behavioral change
+* Store vector in pgvector for real-time similarity queries
+
+---
+
+## 🔁 Central Practices
+
+* Use Pydantic or schema validators to enforce standard field formats
+* Maintain canonical vocabularies for genre, tags, audience\_type
+* Use capability.describe() methods to ensure agents see enriched, structured fields
+* Make all enriched data available to LLM agents and planners via standardized orchestration context
+
+---
+
+## ✅ Next Steps
+
+* [ ] Finalize Pydantic schemas for `EventMetadata` and `CustomerProfile`
+* [ ] Implement enrichment pipeline using Open-Meteo, NewsAPI, and Spotify
+* [ ] Store embeddings in pgvector
+* [ ] Build segment similarity and recommendation flows based on embeddings
+* [ ] Feed metadata summaries into outbound campaign planners
+
+Let me know if you want a starter script for metadata enrichment agents or a schema bundle to implement these models.

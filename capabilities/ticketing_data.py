@@ -25,7 +25,7 @@ from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
-from capabilities.base import BaseCapability, CapabilityDescription
+from capabilities.base import BaseCapability, CapabilityDescription, ResponseContext
 from models.capabilities import (
     TicketingDataInputs, TicketingDataResult, DataPoint,
     CubeFilter
@@ -145,6 +145,67 @@ class TicketingDataCapability(BaseCapability):
             return "Query completed but no data found"
         else:
             return "Data retrieval failed"
+    
+    def prepare_response_context(self, result: TicketingDataResult) -> Dict[str, Any]:
+        """
+        Prepare condensed context for response generation.
+        
+        For large datasets, provides summary statistics instead of raw data.
+        For small datasets, includes the actual values.
+        """
+        context = {
+            "success": result.success,
+            "total_records": len(result.data) if result.data else 0,
+        }
+        
+        if not result.success:
+            context["error"] = result.error_message or "Data retrieval failed"
+            return context
+            
+        if not result.data:
+            context["summary"] = "No data found matching the query criteria"
+            return context
+            
+        # For small results (1-5 records), include actual data
+        if len(result.data) <= 5:
+            context["data_points"] = []
+            for dp in result.data:
+                point = {}
+                if dp.measures:
+                    point["measures"] = dp.measures
+                if dp.dimensions:
+                    point["dimensions"] = dp.dimensions
+                context["data_points"].append(point)
+                
+            # Add query description if available
+            if hasattr(result, 'query_metadata') and result.query_metadata:
+                context["query_description"] = result.query_metadata.get("description", "")
+                
+        else:
+            # For larger results, provide summary
+            context["summary"] = f"Retrieved {len(result.data)} records"
+            
+            # Include sample of first few records
+            context["sample_data"] = []
+            for dp in result.data[:3]:  # First 3 as examples
+                point = {}
+                if dp.measures:
+                    point["measures"] = dp.measures
+                if dp.dimensions:
+                    point["dimensions"] = dp.dimensions
+                context["sample_data"].append(point)
+                
+            # Add metadata about the full dataset
+            if result.data and result.data[0].measures:
+                context["measure_names"] = list(result.data[0].measures.keys())
+            if result.data and result.data[0].dimensions:
+                context["dimension_names"] = list(result.data[0].dimensions.keys())
+                
+        # Add any assumptions made
+        if hasattr(result, 'assumptions') and result.assumptions:
+            context["assumptions"] = result.assumptions
+            
+        return context
     
     async def execute(self, inputs: TicketingDataInputs) -> TicketingDataResult:
         """Execute data query using all Cube.js capabilities

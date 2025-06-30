@@ -7,7 +7,7 @@ Uses pg_trgm for fuzzy matching with score boosting and ambiguity preservation.
 
 import asyncpg
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from pydantic import BaseModel, Field
 import logging
 from datetime import datetime
 import json
@@ -15,15 +15,18 @@ import json
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class EntityCandidate:
+class EntityCandidate(BaseModel):
     """Entity candidate with similarity score and metadata"""
     id: str
     name: str
     entity_type: str
-    score: float  # 0.0 to 1.0
+    score: float = Field(ge=0.0, le=1.0)  # 0.0 to 1.0
     disambiguation: str  # Human-readable context
-    metadata: Dict[str, Any]
+    data: Optional[Dict[str, Any]] = Field(default=None, description="Additional entity data")
+    # Disambiguation fields from our database
+    sold_last_30_days: Optional[float] = None
+    first_date: Optional[datetime] = None
+    last_date: Optional[datetime] = None
 
 
 class EntityResolver:
@@ -125,7 +128,10 @@ class EntityResolver:
                 entity_type=row['entity_type'],
                 score=boosted_score,
                 disambiguation=disambiguation,
-                metadata=data
+                data=data,
+                sold_last_30_days=data.get('sold_last_30_days'),
+                first_date=datetime.fromisoformat(data['first_date']) if data.get('first_date') and data['first_date'] != 'unknown' else None,
+                last_date=datetime.fromisoformat(data['last_date']) if data.get('last_date') and data['last_date'] != 'unknown' else None
             )
             candidates.append(candidate)
         
@@ -227,7 +233,10 @@ class EntityResolver:
                 entity_type=row['entity_type'],
                 score=discounted_score,
                 disambiguation=disambiguation,
-                metadata=data
+                data=data,
+                sold_last_30_days=data.get('sold_last_30_days'),
+                first_date=datetime.fromisoformat(data['first_date']) if data.get('first_date') and data['first_date'] != 'unknown' else None,
+                last_date=datetime.fromisoformat(data['last_date']) if data.get('last_date') and data['last_date'] != 'unknown' else None
             )
             candidates.append(candidate)
         
